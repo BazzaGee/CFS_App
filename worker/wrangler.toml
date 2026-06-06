@@ -1,0 +1,31 @@
+name = "couples-food-system-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "HOUSEHOLD_SYNC"
+class_name = "HouseholdSync"
+
+[[durable_objects.bindings]]
+name = "INVITE_STORE"
+class_name = "InviteStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HouseholdSync", "InviteStore"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "couples-food-system"
+database_id = "3aedecd6-7fda-4984-aa90-057258ba2e2d"
+migrations_dir = "migrations"
+
+[vars]
+JWT_SECRET = "dev-secret-change-me-in-production"
+
+[env.staging]
+name = "couples-food-system-api-staging"
+
+[env.production]
+name = "couples-food-system-api"
