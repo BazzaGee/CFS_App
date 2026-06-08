@@ -17,12 +17,6 @@ const DAYS = [
   { key: 'sun', label: 'Sun' },
 ] as const;
 
-const QUICK_ACTIONS = [
-  { label: 'Suggest dinner', message: 'Suggest a meal for tonight based on what we have' },
-  { label: 'What can we make?', message: 'What meals can we make with our pantry items right now?' },
-  { label: 'Something different', message: 'Suggest something we haven\'t tried before' },
-] as const;
-
 export default function MealPlanTab() {
   const [view, setView] = useState<'single' | 'week' | 'saved'>('single');
 
@@ -95,10 +89,6 @@ function MealChatView() {
     setInput('');
   }
 
-  function handleQuickAction(message: string) {
-    sendMessage(message);
-  }
-
   return (
     <div className="flex flex-col" style={{ minHeight: 'calc(100vh - 220px)' }}>
       <div ref={listRef} className="flex-1 overflow-y-auto space-y-4 pb-4">
@@ -108,23 +98,11 @@ function MealChatView() {
               <Sparkles size={28} className="text-sage" />
             </div>
             <p className="text-text-primary text-xl font-semibold mb-2">
-              Ready to decide dinner?
+              What should we cook?
             </p>
-            <p className="text-text-secondary text-base leading-relaxed max-w-sm mx-auto mb-6">
-              Tell me what you're in the mood for, or let me check your pantry and suggest something.
+            <p className="text-text-secondary text-base leading-relaxed max-w-sm mx-auto">
+              Tell me what you're in the mood for, or ask me to check your pantry.
             </p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {QUICK_ACTIONS.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  onClick={() => handleQuickAction(action.message)}
-                  className="bg-cream text-text-secondary text-sm font-medium px-4 py-2 rounded-xl border border-border hover:bg-cream-dark hover:text-text-primary transition-colors"
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -159,34 +137,12 @@ function MealChatView() {
       </div>
 
       <div className="border-t border-border pt-3 mt-2">
-        {messages.length > 2 && (
-          <div className="flex flex-wrap gap-2 mb-3">
-            {QUICK_ACTIONS.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                onClick={() => handleQuickAction(action.message)}
-                className="bg-cream text-text-secondary text-xs font-medium px-3 py-1.5 rounded-lg border border-border hover:bg-cream-dark hover:text-text-primary transition-colors"
-              >
-                {action.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={clearChat}
-              className="bg-cream text-text-secondary text-xs font-medium px-3 py-1.5 rounded-lg border border-border hover:bg-cream-dark hover:text-error transition-colors"
-            >
-              Clear
-            </button>
-          </div>
-        )}
-
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="e.g. something with chicken, quick pasta, vegetarian..."
+            placeholder="Ask me anything about your meal..."
             disabled={isTyping}
             className="flex-1 bg-white border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage/50 disabled:opacity-50 transition-colors"
           />
@@ -198,6 +154,15 @@ function MealChatView() {
             <Send size={18} />
           </button>
         </form>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={clearChat}
+            className="mt-2 text-text-secondary text-xs hover:text-error transition-colors"
+          >
+            Clear conversation
+          </button>
+        )}
       </div>
     </div>
   );

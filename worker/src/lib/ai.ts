@@ -497,12 +497,14 @@ async function callDeepSeekChat(
       });
 
       if (!res.ok) {
-        console.error(`Chat call failed for model ${model}: ${res.status}`);
+        const errorBody = await res.text().catch(() => 'no error body');
+        console.error(`Chat call failed for model ${model}: ${res.status}`, errorBody);
         continue;
       }
 
       const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
       const text = data.choices?.[0]?.message?.content ?? '';
+      console.log(`AI response from ${model}:`, text.substring(0, 200) + '...');
       if (text) return text;
     } catch (err) {
       console.error(`Chat model ${model} failed:`, err);
@@ -526,17 +528,28 @@ export async function chatWithAI(
     return { message: 'I couldn\'t generate a response right now. Try again in a moment.' };
   }
 
+  console.log('Raw AI response:', raw.substring(0, 500));
+
   try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    // Remove markdown code blocks if present
+    const cleanedText = raw
+      .replace(/```json\n?/g, '')
+      .replace(/\n?```/g, '')
+      .trim();
+    
+    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]) as ChatResponse;
       if (parsed.message && typeof parsed.message === 'string') {
+        console.log('Parsed AI response successfully:', parsed.message.substring(0, 100));
         return parsed;
       }
     }
-  } catch {
-    console.error('Failed to parse chat AI response');
+  } catch (err) {
+    console.error('Failed to parse chat AI response:', err);
+    console.error('Raw text that failed:', raw.substring(0, 500));
   }
 
-  return { message: raw };
+  // If we couldn't parse JSON but got text, return it as a plain message
+  return { message: raw.substring(0, 1000) };
 }
