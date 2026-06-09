@@ -525,31 +525,43 @@ export async function chatWithAI(
   const raw = await callDeepSeekChat(env, systemPrompt, history, userMessage);
 
   if (!raw) {
-    return { message: 'I couldn\'t generate a response right now. Try again in a moment.' };
+    return { message: 'I couldn\'t reach the AI right now. Please try again in a moment.' };
   }
 
-  console.log('Raw AI response:', raw.substring(0, 500));
+  console.log('Raw AI response (first 500 chars):', raw.substring(0, 500));
 
+  // Try 1: Parse raw text directly as JSON
   try {
-    // Remove markdown code blocks if present
-    const cleanedText = raw
-      .replace(/```json\n?/g, '')
-      .replace(/\n?```/g, '')
-      .trim();
-    
-    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]) as ChatResponse;
       if (parsed.message && typeof parsed.message === 'string') {
-        console.log('Parsed AI response successfully:', parsed.message.substring(0, 100));
+        console.log('Parsed AI response successfully (raw). Message:', parsed.message.substring(0, 100));
+        return parsed;
+      }
+    }
+  } catch {
+    console.log('Raw JSON parse failed, trying markdown cleanup...');
+  }
+
+  // Try 2: Strip markdown code blocks and try again
+  try {
+    const cleaned = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const jsonMatch2 = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch2) {
+      const parsed = JSON.parse(jsonMatch2[0]) as ChatResponse;
+      if (parsed.message && typeof parsed.message === 'string') {
+        console.log('Parsed AI response successfully (cleaned). Message:', parsed.message.substring(0, 100));
         return parsed;
       }
     }
   } catch (err) {
-    console.error('Failed to parse chat AI response:', err);
+    console.error('Cleaned JSON parse also failed:', err);
     console.error('Raw text that failed:', raw.substring(0, 500));
   }
 
-  // If we couldn't parse JSON but got text, return it as a plain message
+  // Try 3: If it looks like plain text (not JSON), return it as a message — no meal
+  // This means the AI responded with text but not in the expected JSON format
+  console.log('Returning raw text as plain message (no structured meal data)');
   return { message: raw.substring(0, 1000) };
 }

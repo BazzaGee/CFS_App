@@ -393,51 +393,7 @@ function PlatingCard({
 }
 
 function SavedRecipesView() {
-  const { recipes, isLoading, hasRecipes, getMeal, deleteRecipe, isDeleting } = useRecipes();
-  const { addItem } = useGroceryList();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleToggleExpand(recipeId: string) {
-    setExpandedId((prev) => (prev === recipeId ? null : recipeId));
-    setDeleteConfirmId(null);
-    if (deleteTimerRef.current) {
-      clearTimeout(deleteTimerRef.current);
-      deleteTimerRef.current = null;
-    }
-  }
-
-  function handleDeleteFirstClick(recipeId: string) {
-    if (deleteConfirmId === recipeId) {
-      deleteRecipe(recipeId);
-      setExpandedId(null);
-      setDeleteConfirmId(null);
-      if (deleteTimerRef.current) {
-        clearTimeout(deleteTimerRef.current);
-        deleteTimerRef.current = null;
-      }
-    } else {
-      setDeleteConfirmId(recipeId);
-      deleteTimerRef.current = setTimeout(() => {
-        setDeleteConfirmId(null);
-        deleteTimerRef.current = null;
-      }, 3000);
-    }
-  }
-
-  function handleAddMissing(meal: GeneratedMeal) {
-    const missing = meal.ingredients.filter((i) => !i.have);
-    for (const item of missing) {
-      addItem({ name: item.name, category: classify(item.name) });
-    }
-  }
-
-  useEffect(() => {
-    return () => {
-      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    };
-  }, []);
+  const { recipes, isLoading, hasRecipes, getMeal, deleteRecipe } = useRecipes();
 
   if (isLoading) {
     return (
@@ -468,132 +424,183 @@ function SavedRecipesView() {
       {recipes.map((recipe) => {
         const meal = getMeal(recipe);
         if (!meal) return null;
-        const isExpanded = expandedId === recipe.id;
-        const isConfirmingDelete = deleteConfirmId === recipe.id;
-        const missingCount = meal.ingredients.filter((i) => !i.have).length;
-
         return (
-          <div
+          <SavedRecipeCard
             key={recipe.id}
-            className="bg-white border border-border rounded-xl overflow-hidden"
-          >
-            <button
-              type="button"
-              onClick={() => handleToggleExpand(recipe.id)}
-              className="w-full px-5 py-4 flex items-center gap-4 text-left hover:bg-cream/30 transition-colors"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-text-primary text-sm font-medium">{meal.name}</p>
-                <p className="text-text-secondary text-xs mt-0.5">
-                  {meal.timeMinutes}min · {meal.calories}cal
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {missingCount > 0 && (
-                  <span className="flex items-center gap-1 text-terracotta text-xs font-medium">
-                    <Plus size={12} />
-                    {missingCount} to buy
-                  </span>
-                )}
-                {isExpanded
-                  ? <ChevronUp size={16} className="text-text-secondary" />
-                  : <ChevronDown size={16} className="text-text-secondary" />
-                }
-              </div>
-            </button>
-
-            {isExpanded && (
-              <>
-              <div className="border-t border-border">
-                <div className="px-5 py-3">
-                  <p className="text-text-secondary text-xs mb-2">{meal.description}</p>
-
-                  <div className="grid grid-cols-4 gap-2 mb-3">
-                    {[
-                      { label: 'Cal', value: meal.calories },
-                      { label: 'P', value: `${meal.protein}g` },
-                      { label: 'C', value: `${meal.carbs}g` },
-                      { label: 'F', value: `${meal.fat}g` },
-                    ].map((stat) => (
-                      <div key={stat.label} className="text-center bg-cream/50 rounded-lg py-1.5">
-                        <p className="text-text-secondary text-[10px] uppercase">{stat.label}</p>
-                        <p className="text-text-primary text-sm font-semibold">{stat.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="px-5 pb-3">
-                  <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Ingredients</p>
-                  <ul className="space-y-1.5">
-                    {meal.ingredients.map((ing, i) => (
-                      <li key={i} className="flex items-center gap-2 text-xs">
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ing.have ? 'bg-sage' : 'bg-terracotta'}`} />
-                        <span className={ing.have ? 'text-text-primary' : 'text-text-secondary'}>
-                          {ing.quantity && <span className="text-text-secondary">{ing.quantity} </span>}
-                          {ing.name}
-                        </span>
-                        {!ing.have && <span className="text-terracotta font-medium ml-auto">need</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="px-5 pb-3">
-                  <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Steps</p>
-                  <ol className="space-y-2">
-                    {meal.steps.map((step, i) => (
-                      <li key={i} className="flex gap-2">
-                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-sage/10 text-sage text-[10px] font-semibold flex items-center justify-center">
-                          {i + 1}
-                        </span>
-                        <p className="text-text-primary text-xs leading-relaxed pt-0.5">{step}</p>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-
-                {meal.plating && meal.plating.length > 0 && (
-                  <div className="px-5 pb-3">
-                    <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Plating</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {meal.plating.map((p) => (
-                        <PlatingCard key={p.partnerSlot} plating={p} compact />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-border px-5 py-2.5 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleAddMissing(meal)}
-                  disabled={missingCount === 0}
-                  className="flex-1 bg-sage text-white text-xs font-medium py-2 px-3 rounded-lg hover:bg-sage-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-                >
-                  <Plus size={12} />
-                  Add {missingCount} to list
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteFirstClick(recipe.id)}
-                  disabled={isDeleting}
-                  className={`text-xs font-medium py-2 px-3 rounded-lg transition-all flex items-center gap-1.5 ${
-                    isConfirmingDelete
-                      ? 'bg-terracotta text-white'
-                      : 'bg-cream text-text-secondary border border-border hover:bg-cream-dark hover:text-error'
-                  } disabled:opacity-40`}
-                >
-                  <Trash2 size={12} />
-                  {isConfirmingDelete ? 'Delete this recipe?' : 'Delete'}
-                </button>
-              </div>
-              </>
-            )}
-          </div>
+            meal={meal}
+            onDelete={() => deleteRecipe(recipe.id)}
+          />
         );
       })}
+    </div>
+  );
+}
+
+function SavedRecipeCard({
+  meal,
+  onDelete,
+}: {
+  meal: GeneratedMeal;
+  onDelete: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { addItem } = useGroceryList();
+  const [addedMissing, setAddedMissing] = useState(false);
+
+  const missingCount = meal.ingredients.filter((i) => !i.have).length;
+
+  function handleAddMissing() {
+    const missing = meal.ingredients.filter((i) => !i.have);
+    for (const item of missing) {
+      addItem({ name: item.name, category: classify(item.name) });
+    }
+    setAddedMissing(true);
+  }
+
+  function handleDeleteClick() {
+    if (confirmDelete) {
+      onDelete();
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    } else {
+      setConfirmDelete(true);
+      confirmTimerRef.current = setTimeout(() => {
+        setConfirmDelete(false);
+        confirmTimerRef.current = null;
+      }, 3000);
+    }
+  }
+
+  function handleToggleExpand() {
+    setExpanded((prev) => !prev);
+    setConfirmDelete(false);
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
+
+  return (
+    <div className="bg-white border border-border rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={handleToggleExpand}
+        className="w-full px-5 py-4 flex items-center gap-4 text-left hover:bg-cream/30 transition-colors"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-text-primary text-sm font-medium">{meal.name}</p>
+          <p className="text-text-secondary text-xs mt-0.5">
+            {meal.timeMinutes}min · {meal.calories}cal
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {missingCount > 0 && (
+            <span className="flex items-center gap-1 text-terracotta text-xs font-medium">
+              <Plus size={12} />
+              {missingCount} to buy
+            </span>
+          )}
+          {expanded
+            ? <ChevronUp size={16} className="text-text-secondary" />
+            : <ChevronDown size={16} className="text-text-secondary" />
+          }
+        </div>
+      </button>
+
+      {expanded && (
+        <>
+          <div className="border-t border-border">
+            <div className="px-5 py-3">
+              <p className="text-text-secondary text-xs mb-2">{meal.description}</p>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {[
+                  { label: 'Cal', value: meal.calories },
+                  { label: 'P', value: `${meal.protein}g` },
+                  { label: 'C', value: `${meal.carbs}g` },
+                  { label: 'F', value: `${meal.fat}g` },
+                ].map((stat) => (
+                  <div key={stat.label} className="text-center bg-cream/50 rounded-lg py-1.5">
+                    <p className="text-text-secondary text-[10px] uppercase">{stat.label}</p>
+                    <p className="text-text-primary text-sm font-semibold">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-5 pb-3">
+              <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Ingredients</p>
+              <ul className="space-y-1.5">
+                {meal.ingredients.map((ing, i) => (
+                  <li key={i} className="flex items-center gap-2 text-xs">
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ing.have ? 'bg-sage' : 'bg-terracotta'}`} />
+                    <span className={ing.have ? 'text-text-primary' : 'text-text-secondary'}>
+                      {ing.quantity && <span className="text-text-secondary">{ing.quantity} </span>}
+                      {ing.name}
+                    </span>
+                    {!ing.have && <span className="text-terracotta font-medium ml-auto">need</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="px-5 pb-3">
+              <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Steps</p>
+              <ol className="space-y-2">
+                {meal.steps.map((step, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-sage/10 text-sage text-[10px] font-semibold flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <p className="text-text-primary text-xs leading-relaxed pt-0.5">{step}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {meal.plating && meal.plating.length > 0 && (
+              <div className="px-5 pb-3">
+                <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Plating</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {meal.plating.map((p) => (
+                    <PlatingCard key={p.partnerSlot} plating={p} compact />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-border px-5 py-2.5 flex gap-2">
+            <button
+              type="button"
+              onClick={handleAddMissing}
+              disabled={missingCount === 0 || addedMissing}
+              className="flex-1 bg-sage text-white text-xs font-medium py-2 px-3 rounded-lg hover:bg-sage-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+            >
+              <Plus size={12} />
+              {addedMissing ? 'Added' : `Add ${missingCount} to list`}
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              className={`text-xs font-medium py-2 px-3 rounded-lg transition-all flex items-center gap-1.5 ${
+                confirmDelete
+                  ? 'bg-terracotta text-white'
+                  : 'bg-cream text-text-secondary border border-border hover:bg-cream-dark hover:text-error'
+              }`}
+            >
+              <Trash2 size={12} />
+              {confirmDelete ? 'Delete this recipe?' : 'Delete'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
