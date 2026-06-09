@@ -75,3 +75,27 @@ export async function handleSaveRecipe(c: Context<{ Bindings: Env }>) {
   const recipe = await saveRecipe(c.env.DB, householdId, body.name, body.mealData);
   return c.json(recipe, 201);
 }
+
+export async function deleteRecipe(
+  db: D1Database,
+  householdId: string,
+  recipeId: string,
+): Promise<boolean> {
+  const result = await db.prepare(
+    'DELETE FROM recipes WHERE id = ? AND household_id = ?',
+  )
+    .bind(recipeId, householdId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function handleDeleteRecipe(c: Context<{ Bindings: Env }>) {
+  const householdId = c.req.param('id') as string;
+  const recipeId = c.req.param('recipeId') as string;
+
+  const deleted = await deleteRecipe(c.env.DB, householdId, recipeId);
+  if (!deleted) {
+    return c.json({ error: 'recipe not found' }, 404);
+  }
+  return c.json({ deleted: true });
+}

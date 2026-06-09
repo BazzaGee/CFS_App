@@ -5,7 +5,7 @@ import { InviteStore } from './durable-objects/InviteStore';
 import { readBearer, signToken, verifyToken, type TokenClaims } from './lib/jwt';
 import { createPartner, getPartners, handleGetProfiles, handleUpdateProfile, updatePartner } from './routes/profiles';
 import { handleGetWeekPlan, handleGenerateWeekPlan, handleConfirmMeal } from './routes/mealplan';
-import { handleGetRecipes, handleSaveRecipe } from './routes/recipes';
+import { handleGetRecipes, handleSaveRecipe, handleDeleteRecipe } from './routes/recipes';
 import { handleMealChat } from './routes/mealChat';
 import { generateMeal, type GeneratedMeal } from './lib/ai';
 import type { Env } from './env';
@@ -398,6 +398,12 @@ app.post('/api/household/:id/recipes', async (c) => {
   const denied = await requireAuth(c);
   if (denied) return denied;
   return handleSaveRecipe(c);
+});
+
+app.delete('/api/household/:id/recipes/:recipeId', async (c) => {
+  const denied = await requireAuth(c);
+  if (denied) return denied;
+  return handleDeleteRecipe(c);
 });
 
 app.get('/api/household/:id/ws', async (c) => {

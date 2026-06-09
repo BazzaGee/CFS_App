@@ -40,6 +40,17 @@ export function useRecipes() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (recipeId: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/household/${householdId}/recipes/${recipeId}`, {
+        method: 'DELETE',
+        token,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY(householdId) });
+    },
+  });
+
   function getMeal(recipe: SavedRecipe): GeneratedMeal | null {
     try {
       return JSON.parse(recipe.mealData) as GeneratedMeal;
@@ -54,6 +65,8 @@ export function useRecipes() {
     hasRecipes: recipes.length > 0,
     saveRecipe: saveMutation.mutate,
     isSaving: saveMutation.isPending,
+    deleteRecipe: deleteMutation.mutate,
+    isDeleting: deleteMutation.isPending,
     getMeal,
   };
 }
