@@ -4,6 +4,8 @@ import { useAuthStore } from '../stores/authStore';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { InstallBanner } from '../components/InstallBanner';
 import { ShareCodeButton } from '../components/ShareCodeButton';
+import { NotificationToast } from '../components/NotificationToast';
+import { NotificationBell } from '../components/NotificationBell';
 import { useProfiles } from '../hooks/useProfiles';
 
 const tabs = [
@@ -33,6 +35,7 @@ export default function MainApp() {
 
   return (
     <div className="min-h-full bg-cream flex flex-col">
+      <NotificationToast />
       <InstallBanner />
       <header className="px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -54,6 +57,7 @@ export default function MainApp() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <NotificationBell />
           <SyncIndicator />
           <ShareCodeButton />
           <button
@@ -89,7 +93,7 @@ export default function MainApp() {
                 to={tab.to}
                 className={({ isActive }) =>
                   `flex flex-col items-center gap-1 py-3 px-2 text-xs font-medium transition-colors ${
-                    isActive ? 'text-sage' : 'text-text-secondary hover:text-text-primary'
+                    isActive ? 'text-terracotta' : 'text-text-secondary hover:text-text-primary'
                   }`
                 }
               >

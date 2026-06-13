@@ -54,7 +54,7 @@ export async function handleMealChat(c: Context<{ Bindings: Env }>): Promise<Res
   const partnerContext = profiles.map((p) => ({
     name: p.name,
     diet: p.diet as Diet,
-    allergies: p.allergies,
+    allergens: p.allergens,
     tdee: p.tdee,
     goal: p.goal,
     activityLevel: p.activityLevel,

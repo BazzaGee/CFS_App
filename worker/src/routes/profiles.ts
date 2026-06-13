@@ -13,7 +13,8 @@ export interface PartnerProfile {
   slot: 1 | 2;
   name: string;
   diet: Diet;
-  allergies: string;
+  allergies: string;          // kept for backward compat, deprecated
+  allergens: string[];         // structured list from partner_allergens table
   createdAt: number;
   updatedAt: number;
   weightKg: number | null;
@@ -42,6 +43,15 @@ interface PartnerRow {
   goal: string | null;
 }
 
+async function getPartnerAllergens(db: D1Database, partnerId: string): Promise<string[]> {
+  const { results } = await db.prepare(
+    'SELECT allergen FROM partner_allergens WHERE partner_id = ? ORDER BY allergen ASC',
+  )
+    .bind(partnerId)
+    .all<{ allergen: string }>();
+  return (results ?? []).map((r) => r.allergen);
+}
+
 function rowToProfile(row: PartnerRow): PartnerProfile {
   const profile: PartnerProfile = {
     id: row.id,
@@ -50,6 +60,7 @@ function rowToProfile(row: PartnerRow): PartnerProfile {
     name: row.name,
     diet: row.diet as Diet,
     allergies: row.allergies,
+    allergens: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     weightKg: row.weight_kg,
@@ -81,6 +92,7 @@ export async function createPartner(
   partnerId: string,
   slot: 1 | 2,
   name: string,
+  allergens?: string[],
 ): Promise<PartnerProfile> {
   const now = Date.now();
   await db.prepare(
@@ -90,13 +102,26 @@ export async function createPartner(
     .bind(partnerId, householdId, slot, name, now, now)
     .run();
 
+  if (allergens && allergens.length > 0) {
+    const insertAllergen = db.prepare(
+      'INSERT OR IGNORE INTO partner_allergens (partner_id, allergen, severity, added_at) VALUES (?, ?, ?, ?)',
+    );
+    for (const a of allergens) {
+      const cleaned = a.trim().toLowerCase();
+      if (cleaned) {
+        await insertAllergen.bind(partnerId, cleaned, 'strict', now).run();
+      }
+    }
+  }
+
   return {
     id: partnerId,
     householdId,
     slot,
     name,
     diet: 'omnivore',
-    allergies: '',
+    allergies: (allergens ?? []).join(', '),
+    allergens: allergens ?? [],
     createdAt: now,
     updatedAt: now,
     weightKg: null,
@@ -118,13 +143,38 @@ export async function getPartners(
   )
     .bind(householdId)
     .all<PartnerRow>();
-  return (results ?? []).map(rowToProfile);
+  const profiles = (results ?? []).map(rowToProfile);
+
+  for (const profile of profiles) {
+    profile.allergens = await getPartnerAllergens(db, profile.id);
+  }
+
+  return profiles;
+}
+
+async function replacePartnerAllergens(db: D1Database, partnerId: string, allergens: string[]): Promise<void> {
+  await db.prepare('DELETE FROM partner_allergens WHERE partner_id = ?').bind(partnerId).run();
+  if (allergens.length === 0) return;
+  const now = Date.now();
+  const insertAllergen = db.prepare(
+    'INSERT INTO partner_allergens (partner_id, allergen, severity, added_at) VALUES (?, ?, ?, ?)',
+  );
+  for (const a of allergens) {
+    const cleaned = a.trim().toLowerCase();
+    if (cleaned) {
+      await insertAllergen.bind(partnerId, cleaned, 'strict', now).run();
+    }
+  }
 }
 
 export async function updatePartner(
   db: D1Database,
   partnerId: string,
-  updates: { name?: string; diet?: string; allergies?: string; weightKg?: number | null; heightCm?: number | null; age?: number | null; gender?: string | null; activityLevel?: string | null; goal?: string | null },
+  updates: {
+    name?: string; diet?: string; allergies?: string; allergens?: string[];
+    weightKg?: number | null; heightCm?: number | null; age?: number | null;
+    gender?: string | null; activityLevel?: string | null; goal?: string | null;
+  },
 ): Promise<PartnerProfile | null> {
   const now = Date.now();
   const existing = await db.prepare(
@@ -151,17 +201,27 @@ export async function updatePartner(
     .bind(name, diet, allergies, weightKg, heightCm, age, gender, activityLevel, goal, now, partnerId)
     .run();
 
+  if (updates.allergens !== undefined) {
+    const cleaned = updates.allergens.map((a) => a.trim().toLowerCase()).filter(Boolean);
+    const deduped = [...new Set(cleaned)];
+    const textAllergies = deduped.join(', ');
+    await replacePartnerAllergens(db, partnerId, deduped);
+    await db.prepare('UPDATE partners SET allergies = ? WHERE id = ?').bind(textAllergies, partnerId).run();
+    const currentAllergens = deduped;
+    const rowToReturn: PartnerRow = {
+      ...existing,
+      name, diet, allergies: textAllergies,
+      weight_kg: weightKg, height_cm: heightCm, age, gender, activity_level: activityLevel, goal,
+      updated_at: now,
+    };
+    const profile = rowToProfile(rowToReturn);
+    profile.allergens = currentAllergens;
+    return profile;
+  }
+
   return rowToProfile({
     ...existing,
-    name,
-    diet,
-    allergies,
-    weight_kg: weightKg,
-    height_cm: heightCm,
-    age,
-    gender,
-    activity_level: activityLevel,
-    goal,
+    name, diet, allergies, weight_kg: weightKg, height_cm: heightCm, age, gender, activity_level: activityLevel, goal,
     updated_at: now,
   });
 }
@@ -178,6 +238,7 @@ export async function handleUpdateProfile(c: Context<{ Bindings: Env }>) {
     name?: string;
     diet?: string;
     allergies?: string;
+    allergens?: string[];
     weightKg?: number | null;
     heightCm?: number | null;
     age?: number | null;
@@ -190,6 +251,7 @@ export async function handleUpdateProfile(c: Context<{ Bindings: Env }>) {
     name: body.name?.trim(),
     diet: body.diet,
     allergies: body.allergies,
+    allergens: body.allergens,
     weightKg: body.weightKg,
     heightCm: body.heightCm,
     age: body.age,

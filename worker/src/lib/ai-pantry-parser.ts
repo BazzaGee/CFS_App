@@ -65,6 +65,8 @@ Output: {"name":"cheddar","quantityValue":250,"quantityUnit":"g","brand":"Swiss"
 
 Output ONLY a valid JSON array, no markdown, no explanation.`;
 
+const PANTRY_MODEL_CHAIN = ['deepseek-v4-flash', 'deepseek-v4-pro'] as const;
+
 export async function parsePantryWithAI(
   rawInputs: string[],
   apiKey: string,
@@ -83,44 +85,52 @@ export async function parsePantryWithAI(
     authPrefix = envProviderConfig.authPrefix;
   }
 
-  const res = await fetch(baseUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      [authHeader]: `${authPrefix} ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  for (const model of PANTRY_MODEL_CHAIN) {
+    try {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [authHeader]: `${authPrefix} ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2048,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
 
-  if (!res.ok) {
-    console.error(`AI API error: ${res.status}`);
-    return rawInputs.map(fallbackItem);
-  }
+      if (!res.ok) {
+        console.error(`AI API error for model ${model}: ${res.status}`);
+        continue;
+      }
 
-  const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-  const text = data.choices?.[0]?.message?.content ?? '';
+      const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+      const text = data.choices?.[0]?.message?.content ?? '';
 
-  try {
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]) as ParsedPantryItem[];
-      return parsed.map((item) => ({
-        ...item,
-        name: (item.name || '').trim(),
-        category: isValidCategory(item.category) ? item.category : 'Other',
-        isFood: typeof item.isFood === 'boolean' ? item.isFood : true,
-        confidence: Math.min(Math.max(item.confidence ?? 0.5, 0), 1),
-        needsReview: false,
-      }));
+      try {
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as ParsedPantryItem[];
+          console.log(`Pantry parsed using model: ${model}`);
+          return parsed.map((item) => ({
+            ...item,
+            name: (item.name || '').trim(),
+            category: isValidCategory(item.category) ? item.category : 'Other',
+            isFood: typeof item.isFood === 'boolean' ? item.isFood : true,
+            confidence: Math.min(Math.max(item.confidence ?? 0.5, 0), 1),
+            needsReview: false,
+          }));
+        }
+      } catch {
+        console.error(`Failed to parse AI response from model ${model}:`, text.substring(0, 200));
+      }
+    } catch (err) {
+      console.error(`Pantry parse model ${model} failed:`, err);
     }
-  } catch {
-    console.error('Failed to parse AI response:', text.substring(0, 200));
   }
 
+  console.error('All pantry parse models failed. Using fallback.');
   return rawInputs.map(fallbackItem);
 }
 

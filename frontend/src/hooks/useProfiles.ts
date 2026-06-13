@@ -21,6 +21,7 @@ export interface PartnerProfile {
   name: string;
   diet: Diet;
   allergies: string;
+  allergens: string[];
   createdAt: number;
   updatedAt: number;
   weightKg: number | null;
@@ -50,7 +51,7 @@ export function useProfiles() {
   });
 
   const updateProfile = useCallback(
-    async (partnerId: string, updates: { name?: string; diet?: string; allergies?: string; weightKg?: number | null; heightCm?: number | null; age?: number | null; gender?: string | null; activityLevel?: string | null; goal?: string | null }) => {
+    async (partnerId: string, updates: { name?: string; diet?: string; allergies?: string; allergens?: string[]; weightKg?: number | null; heightCm?: number | null; age?: number | null; gender?: string | null; activityLevel?: string | null; goal?: string | null }) => {
       const result = await apiFetch<PartnerProfile>(
         `/api/household/${householdId}/profiles/${partnerId}`,
         {

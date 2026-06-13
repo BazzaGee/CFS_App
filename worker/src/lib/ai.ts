@@ -64,8 +64,8 @@ function buildPrompt(
   pantryItems: Array<{ name: string; quantity: string; category?: string; quantityValue?: number | null; quantityUnit?: string; brand?: string }>,
   partner1Diet: Diet,
   partner2Diet: Diet,
-  partner1Allergies?: string,
-  partner2Allergies?: string,
+  partner1Allergens: string[],
+  partner2Allergens: string[],
   partner1Goal?: Goal | null,
   partner2Goal?: Goal | null,
   partner1Body?: { name: string; tdee: TDEEResult },
@@ -78,22 +78,30 @@ function buildPrompt(
     return `${i.name}${qty ? ` (${qty}${cat}${brand})` : (cat || brand ? ` (${cat}${brand})` : '')}`;
   }).join(', ') || 'none listed';
 
-  const allAllergens = [partner1Allergies, partner2Allergies].filter(Boolean).join(', ') || null;
+  const allAllergenSet = new Set<string>();
+  for (const a of partner1Allergens) allAllergenSet.add(a.trim().toLowerCase());
+  for (const a of partner2Allergens) allAllergenSet.add(a.trim().toLowerCase());
+  const allAllergens = allAllergenSet.size > 0 ? [...allAllergenSet].sort().join(', ') : null;
+
   const hasAnyGoal = partner1Goal || partner2Goal;
   const goalRule = hasAnyGoal ? `\n- Respect each partner's body goal when choosing meals and portions (higher protein for muscle gain, lower calorie density for weight loss, balanced for maintenance). This is critical.` : '';
+  const allergenRule = allAllergens ? `\n- STRICTLY AVOID any trace of these allergens: ${allAllergens}. This is critical — meals must be 100% free of these items. Also avoid known derivatives: if an allergen is on the list, its oils, flours, butters, and extracts are also forbidden.` : '';
+
+  const p1Allergens = partner1Allergens.length > 0 ? partner1Allergens.join(', ') : '';
+  const p2Allergens = partner2Allergens.length > 0 ? partner2Allergens.join(', ') : '';
 
   if (partner1Body && partner2Body) {
     return `You are an adaptive meal planner for couples who cook together but have different nutritional goals.
 
 Pantry: ${pantryList}
-Partner 1: ${partner1Body.name}, diet=${partner1Diet}${partner1Allergies ? `, allergies=${partner1Allergies}` : ''}${partner1Goal ? `, goal=${GOAL_LABELS[partner1Goal]}` : ''}, target=${partner1Body.tdee.targetCalories} cal/day
-Partner 2: ${partner2Body.name}, diet=${partner2Diet}${partner2Allergies ? `, allergies=${partner2Allergies}` : ''}${partner2Goal ? `, goal=${GOAL_LABELS[partner2Goal]}` : ''}, target=${partner2Body.tdee.targetCalories} cal/day
+Partner 1: ${partner1Body.name}, diet=${partner1Diet}${p1Allergens ? `, allergies=${p1Allergens}` : ''}${partner1Goal ? `, goal=${GOAL_LABELS[partner1Goal]}` : ''}, target=${partner1Body.tdee.targetCalories} cal/day
+Partner 2: ${partner2Body.name}, diet=${partner2Diet}${p2Allergens ? `, allergies=${p2Allergens}` : ''}${partner2Goal ? `, goal=${GOAL_LABELS[partner2Goal]}` : ''}, target=${partner2Body.tdee.targetCalories} cal/day
 Time limit: 30 minutes
 
 Generate ONE shared recipe with TWO different plating instructions. Same cooking process, different portions.
 
 Rules:
-- The meal must work for BOTH dietary preferences${allAllergens ? `\n- STRICTLY AVOID any trace of these allergens: ${allAllergens}. This is critical — meals must be 100% free of these items.` : ''}${goalRule}
+- The meal must work for BOTH dietary preferences${allergenRule}${goalRule}
 - Prioritize using pantry ingredients
 - Give specific portion sizes for each partner's plate
 - Output ONLY valid JSON, no markdown, no explanation
@@ -122,12 +130,12 @@ JSON format:
   return `You are a meal planner for couples. Generate ONE dinner suggestion based on what they have.
 
 Pantry: ${pantryList}
-Partner 1: diet=${partner1Diet}${partner1Allergies ? `, allergies=${partner1Allergies}` : ''}${partner1Goal ? `, goal=${GOAL_LABELS[partner1Goal]}` : ''}
-Partner 2: diet=${partner2Diet}${partner2Allergies ? `, allergies=${partner2Allergies}` : ''}${partner2Goal ? `, goal=${GOAL_LABELS[partner2Goal]}` : ''}
+Partner 1: diet=${partner1Diet}${p1Allergens ? `, allergies=${p1Allergens}` : ''}${partner1Goal ? `, goal=${GOAL_LABELS[partner1Goal]}` : ''}
+Partner 2: diet=${partner2Diet}${p2Allergens ? `, allergies=${p2Allergens}` : ''}${partner2Goal ? `, goal=${GOAL_LABELS[partner2Goal]}` : ''}
 Time limit: 30 minutes
 
 Rules:
-- The meal must work for BOTH dietary preferences (if one is vegetarian, the meal must be vegetarian)${allAllergens ? `\n- STRICTLY AVOID any trace of these allergens: ${allAllergens}. This is critical — meals must be 100% free of these items.` : ''}${goalRule}
+- The meal must work for BOTH dietary preferences (if one is vegetarian, the meal must be vegetarian)${allergenRule}${goalRule}
 - Prioritize using pantry ingredients
 - Keep it simple and realistic
 - Output ONLY valid JSON, no markdown, no explanation
@@ -196,21 +204,81 @@ async function callProvider(
   return null;
 }
 
+function getMealTextTokens(meal: GeneratedMeal): string[] {
+  const texts = [
+    meal.name,
+    meal.description,
+    ...meal.ingredients.map((i) => i.name),
+    ...meal.steps,
+    ...(meal.plating?.map((p) => p.plate) ?? []),
+  ];
+  return texts.map((t) => t.toLowerCase().trim());
+}
+
+function tokenMatchesAllergen(token: string, allergen: string): boolean {
+  const normalizedToken = token.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = normalizedToken.split(/\s+/);
+  for (const word of words) {
+    if (word === allergen) return true;
+    if (word.includes(allergen)) return true;
+    if (allergen.includes(word) && word.length > 3) return true;
+  }
+  return false;
+}
+
+function assertMealIsSafe(meal: GeneratedMeal, profiles: PartnerContext[]): boolean {
+  const allAllergens = new Set<string>();
+  for (const p of profiles) {
+    for (const a of (p.allergens ?? [])) {
+      const cleaned = a.trim().toLowerCase();
+      if (cleaned) {
+        allAllergens.add(cleaned);
+        const crossReactive = CROSS_REACTIVE_MAP[cleaned];
+        if (crossReactive) {
+          for (const cr of crossReactive) allAllergens.add(cr);
+        }
+      }
+    }
+  }
+
+  if (allAllergens.size === 0) return true;
+
+  const tokens = getMealTextTokens(meal);
+  const found: string[] = [];
+
+  for (const allergen of allAllergens) {
+    for (const token of tokens) {
+      if (tokenMatchesAllergen(token, allergen)) {
+        found.push(allergen);
+        break;
+      }
+    }
+  }
+
+  if (found.length > 0) {
+    console.error(`Meal safety guard blocked: allergens ${found.join(', ')} detected in meal "${meal.name}"`);
+    return false;
+  }
+
+  return true;
+}
+
 export async function generateMeal(
   env: Env,
-  pantryItems: Array<{ name: string; quantity: string }>,
+  pantryItems: Array<{ name: string; quantity: string; category?: string; quantityValue?: number | null; quantityUnit?: string }>,
   partner1Diet: Diet,
   partner2Diet: Diet,
-  partner1Allergies?: string,
-  partner2Allergies?: string,
+  partner1Allergens: string[],
+  partner2Allergens: string[],
   partner1Goal?: Goal | null,
   partner2Goal?: Goal | null,
   partner1Body?: { name: string; tdee: TDEEResult },
   partner2Body?: { name: string; tdee: TDEEResult },
+  profiles?: PartnerContext[],
 ): Promise<GeneratedMeal | null> {
   const provider = (env.AI_PROVIDER || 'deepseek') as keyof typeof MODEL_CHAINS;
   const models = MODEL_CHAINS[provider] || MODEL_CHAINS.deepseek;
-  const prompt = buildPrompt(pantryItems, partner1Diet, partner2Diet, partner1Allergies, partner2Allergies, partner1Goal, partner2Goal, partner1Body, partner2Body);
+  const prompt = buildPrompt(pantryItems, partner1Diet, partner2Diet, partner1Allergens, partner2Allergens, partner1Goal, partner2Goal, partner1Body, partner2Body);
 
   for (const model of models) {
     try {
@@ -239,6 +307,11 @@ export async function generateMeal(
             },
           ];
         }
+
+        if (profiles && !assertMealIsSafe(meal, profiles)) {
+          return null;
+        }
+
         return meal;
       }
     } catch (err) {
@@ -262,11 +335,45 @@ export interface ChatResponse {
 interface PartnerContext {
   name: string;
   diet: Diet;
-  allergies: string;
+  allergens: string[];
   tdee: TDEEResult | null;
   goal: Goal | null;
   activityLevel: ActivityLevel | null;
   slot: 1 | 2;
+}
+
+const CROSS_REACTIVE_MAP: Record<string, string[]> = {
+  peanut: ['peanut oil', 'peanut butter', 'peanut flour', 'groundnuts', 'arachis', 'goober', 'beer nut'],
+  shellfish: ['crab', 'lobster', 'shrimp', 'prawn', 'crayfish', 'scallop', 'clam', 'mussel', 'oyster', 'squid', 'calamari', 'octopus'],
+  dairy: ['milk', 'cheese', 'yogurt', 'cream', 'butter', 'ghee', 'whey', 'casein', 'lactose', 'sour cream', 'ice cream', 'custard', 'pudding'],
+  egg: ['eggs', 'egg white', 'egg yolk', 'mayonnaise', 'meringue', 'albumin', 'ovoglobulin'],
+  soy: ['soy sauce', 'tofu', 'tempeh', 'edamame', 'miso', 'soybean', 'soya', 'textured vegetable protein'],
+  wheat: ['flour', 'bread', 'pasta', 'noodle', 'couscous', 'bulgur', 'semolina', 'spelt', 'farro', 'seitan', 'gluten', 'tortilla'],
+  fish: ['salmon', 'tuna', 'cod', 'halibut', 'mackerel', 'sardine', 'anchovy', 'trout', 'tilapia', 'bass', 'snapper', 'catfish'],
+  tree_nut: ['almond', 'walnut', 'cashew', 'pecan', 'pistachio', 'hazelnut', 'macadamia', 'brazil nut', 'pine nut', 'chestnut'],
+  sesame: ['sesame oil', 'tahini', 'hummus', 'sesame seed', 'halva'],
+  sulfite: ['wine', 'vinegar', 'dried fruit', 'pickled', 'sulfite'],
+};
+
+function buildAllergenList(profiles: PartnerContext[]): { combinedList: string; hasAllergens: boolean; p1Line: string; p2Line: string } {
+  const p1 = profiles.find((p) => p.slot === 1);
+  const p2 = profiles.find((p) => p.slot === 2);
+  const allAllergens = new Set<string>();
+  const p1s = p1?.allergens ?? [];
+  const p2s = p2?.allergens ?? [];
+  for (const a of p1s) allAllergens.add(a.trim().toLowerCase());
+  for (const a of p2s) allAllergens.add(a.trim().toLowerCase());
+  const combinedList = allAllergens.size > 0 ? [...allAllergens].sort().join(', ') : '';
+  const hasAllergens = allAllergens.size > 0;
+
+  const p1Line = p1
+    ? `Partner 1: ${p1.name}, diet=${p1.diet}${p1s.length > 0 ? `, allergies=${p1s.join(', ')}` : ''}${p1.goal ? `, goal=${GOAL_LABELS[p1.goal]}` : ''}${p1.tdee ? `, target=${p1.tdee.targetCalories} cal/day` : ''}`
+    : 'Partner 1: no profile set';
+  const p2Line = p2
+    ? `Partner 2: ${p2.name}, diet=${p2.diet}${p2s.length > 0 ? `, allergies=${p2s.join(', ')}` : ''}${p2.goal ? `, goal=${GOAL_LABELS[p2.goal]}` : ''}${p2.tdee ? `, target=${p2.tdee.targetCalories} cal/day` : ''}`
+    : 'Partner 2: no profile set';
+
+  return { combinedList, hasAllergens, p1Line, p2Line };
 }
 
 function buildChatSystemPrompt(
@@ -281,13 +388,7 @@ function buildChatSystemPrompt(
 
   const p1 = profiles.find((p) => p.slot === 1);
   const p2 = profiles.find((p) => p.slot === 2);
-
-  const p1Line = p1
-    ? `Partner 1: ${p1.name}, diet=${p1.diet}${p1.allergies ? `, allergies=${p1.allergies}` : ''}${p1.goal ? `, goal=${GOAL_LABELS[p1.goal]}` : ''}${p1.tdee ? `, target=${p1.tdee.targetCalories} cal/day` : ''}`
-    : 'Partner 1: no profile set';
-  const p2Line = p2
-    ? `Partner 2: ${p2.name}, diet=${p2.diet}${p2.allergies ? `, allergies=${p2.allergies}` : ''}${p2.goal ? `, goal=${GOAL_LABELS[p2.goal]}` : ''}${p2.tdee ? `, target=${p2.tdee.targetCalories} cal/day` : ''}`
-    : 'Partner 2: no profile set';
+  const { combinedList, hasAllergens, p1Line, p2Line } = buildAllergenList(profiles);
 
   const hasBothTdee = p1?.tdee && p2?.tdee;
   const hasAnyGoal = p1?.goal || p2?.goal;
@@ -307,6 +408,7 @@ Rules:
 - If the user says they bought something or have it, put it in addToPantry.
 - Every meal must work for BOTH partners' dietary requirements. If one is vegetarian, the meal is vegetarian.
 - Keep total cook time under 30 minutes unless the user asks for something specific.
+${hasAllergens ? `- STRICTLY AVOID any trace of these allergens: ${combinedList}. This is critical — meals must be 100% free of these items. Also avoid known derivatives: if an allergen is on the list, its oils, flours, butters, and extracts are also forbidden.` : ''}
 ${hasAnyGoal ? `- Respect each partner's body goal when choosing meals and portions (higher protein for muscle gain, lower calorie density for weight loss, balanced for maintenance). This is critical.` : ''}
 ${hasBothTdee ? `- When both partners have calorie targets, include plating instructions with different portion sizes for each partner.\n- Use the same recipe but adjust quantities so each person hits their target calories.` : ''}
 
@@ -412,14 +514,26 @@ export async function chatWithAI(
 
   console.log('Raw AI response (first 500 chars):', raw.substring(0, 500));
 
+  function handleParsedResponse(parsed: ChatResponse): ChatResponse | null {
+    if (!parsed.message || typeof parsed.message !== 'string') return null;
+    if (parsed.meal && profiles.length > 0) {
+      if (!assertMealIsSafe(parsed.meal, profiles)) {
+        console.log('Meal blocked by safety guard (allergen/diet violation)');
+        return { message: 'The generated meal contains ingredients that conflict with one or more partner allergies. Please try a different request or rephrase what you\'re looking for.' };
+      }
+    }
+    return parsed;
+  }
+
   // Try 1: Parse raw text directly as JSON
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]) as ChatResponse;
-      if (parsed.message && typeof parsed.message === 'string') {
+      const handled = handleParsedResponse(parsed);
+      if (handled) {
         console.log('Parsed AI response successfully (raw). Message:', parsed.message.substring(0, 100));
-        return parsed;
+        return handled;
       }
     }
   } catch {
@@ -432,9 +546,10 @@ export async function chatWithAI(
     const jsonMatch2 = cleaned.match(/\{[\s\S]*\}/);
     if (jsonMatch2) {
       const parsed = JSON.parse(jsonMatch2[0]) as ChatResponse;
-      if (parsed.message && typeof parsed.message === 'string') {
+      const handled = handleParsedResponse(parsed);
+      if (handled) {
         console.log('Parsed AI response successfully (cleaned). Message:', parsed.message.substring(0, 100));
-        return parsed;
+        return handled;
       }
     }
   } catch (err) {

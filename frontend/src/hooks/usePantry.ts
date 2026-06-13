@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getWsBaseUrl } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
 import type { PantryItem, PartnerSlot, SyncEvent, Category } from '../types/grocery';
+import { useNotifications } from './useNotifications';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed';
 
@@ -11,6 +12,7 @@ const QUERY_KEY = (householdId: string) => ['pantry', householdId] as const;
 export function usePantry() {
   const session = useAuthStore((s) => s.session);
   const queryClient = useQueryClient();
+  const { processEvent } = useNotifications();
 
   const householdId = session?.householdId ?? '';
   const token = session?.token ?? '';
@@ -94,6 +96,7 @@ export function usePantry() {
         try {
           const event = JSON.parse(e.data) as SyncEvent;
           applyEvent(event);
+          processEvent(event);
         } catch {
         }
       };

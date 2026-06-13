@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/authStore';
 import { apiFetch } from '../lib/api';
 import type { Diet, Goal, Gender, ActivityLevel } from '../hooks/useProfiles';
 
-type Step = 'welcome' | 'name' | 'preferences' | 'goals' | 'body' | 'pantry' | 'created' | 'join-code' | 'partner-check';
+type Step = 'welcome' | 'name' | 'preferences' | 'goals' | 'body' | 'pantry' | 'created' | 'join-code' | 'partner-check' | 'ready';
 
 const DIETS: readonly Diet[] = ['omnivore', 'vegetarian', 'vegan', 'pescatarian', 'keto', 'paleo', 'gluten-free'] as const;
 const GOALS: readonly Goal[] = ['lose', 'maintain', 'gain', 'none'] as const;
@@ -52,6 +52,7 @@ export default function Onboarding() {
   const [gender, setGender] = useState<Gender>('male');
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>('moderate');
   const [pantryInput, setPantryInput] = useState('');
+  const [isSoloMode, setIsSoloMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,11 +70,13 @@ export default function Onboarding() {
     setError(null);
     setSubmitting(true);
     try {
+      const allergensArray = allergies.split(/[,;]/).map((a) => a.trim().toLowerCase()).filter(Boolean);
       const result = await joinHousehold({
         inviteCode: code,
         displayName: name,
         diet: diet === 'omnivore' ? undefined : diet,
         allergies: allergies.trim() || undefined,
+        allergens: allergensArray.length > 0 ? allergensArray : undefined,
         goal: goal === 'none' ? undefined : goal,
         weightKg: weightKg ? parseFloat(weightKg) : null,
         heightCm: heightCm ? parseFloat(heightCm) : null,
@@ -98,7 +101,11 @@ export default function Onboarding() {
       return;
     }
     setError(null);
-    setStep('partner-check');
+    if (isSoloMode) {
+      handleSoloCreate();
+    } else {
+      setStep('partner-check');
+    }
   }
 
   async function handleCreateHousehold() {
@@ -110,10 +117,12 @@ export default function Onboarding() {
     setError(null);
     setSubmitting(true);
     try {
+      const allergensArray = allergies.split(/[,;]/).map((a) => a.trim().toLowerCase()).filter(Boolean);
       const result = await createHousehold({
         displayName: name,
         diet: diet === 'omnivore' ? undefined : diet,
         allergies: allergies.trim() || undefined,
+        allergens: allergensArray.length > 0 ? allergensArray : undefined,
         goal: goal === 'none' ? undefined : goal,
         weightKg: weightKg ? parseFloat(weightKg) : null,
         heightCm: heightCm ? parseFloat(heightCm) : null,
@@ -151,6 +160,58 @@ export default function Onboarding() {
     }
   }
 
+  async function handleSoloCreate() {
+    const name = displayName.trim();
+    if (!name) {
+      setError('Tell us what to call you.');
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const allergensArray = allergies.split(/[,;]/).map((a) => a.trim().toLowerCase()).filter(Boolean);
+      const result = await createHousehold({
+        displayName: name,
+        diet: diet === 'omnivore' ? undefined : diet,
+        allergies: allergies.trim() || undefined,
+        allergens: allergensArray.length > 0 ? allergensArray : undefined,
+        goal: goal === 'none' ? undefined : goal,
+        weightKg: weightKg ? parseFloat(weightKg) : null,
+        heightCm: heightCm ? parseFloat(heightCm) : null,
+        age: age ? parseInt(age) : null,
+        gender,
+        activityLevel,
+      });
+      setSession(result);
+      setCreatedInviteCode(result.inviteCode ?? null);
+
+      if (pantryInput.trim()) {
+        const parts = pantryInput.split(/[,;]/).map((p) => p.trim()).filter((p) => p.length > 0);
+        if (parts.length > 0) {
+          try {
+            await apiFetch(`/api/household/${result.householdId}/pantry/bulk`, {
+              method: 'POST',
+              body: {
+                items: parts.map((p) => ({ name: p, quantity: '' })),
+                addedByPartnerId: result.partner.id,
+                addedByPartnerSlot: result.partner.slot,
+              },
+              token: result.token,
+            });
+          } catch {
+            // pantry bulk is optional, don't block onboarding
+          }
+        }
+      }
+
+      setStep('ready');
+    } catch (err) {
+      setError(err instanceof Error && 'message' in err ? err.message : 'Something went wrong. Try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function handleContinue() {
     completeOnboarding();
     navigate('/', { replace: true });
@@ -162,7 +223,9 @@ export default function Onboarding() {
         <div className="w-full max-w-md">
           {step === 'welcome' && (
             <WelcomeStep
-              onCreate={() => setStep('name')}
+              onSolo={() => { setIsSoloMode(true); setStep('name'); }}
+              onJoinCode={() => { setIsSoloMode(false); setStep('name'); }}
+              onCreate={() => { setIsSoloMode(false); setStep('name'); }}
             />
           )}
 
@@ -254,7 +317,14 @@ export default function Onboarding() {
           {step === 'created' && (
             <CreatedStep
               inviteCode={createdInviteCode}
-              onContinue={handleContinue}
+              onContinue={() => handleContinue()}
+            />
+          )}
+
+          {step === 'ready' && (
+            <ReadyStep
+              inviteCode={createdInviteCode}
+              onContinue={() => handleContinue()}
             />
           )}
         </div>
@@ -266,9 +336,9 @@ export default function Onboarding() {
 function Wordmark() {
   return (
     <div className="text-center mb-12">
-      <p className="text-sage text-xs font-medium tracking-[0.3em] uppercase">For two</p>
+      <p className="text-sage text-xs font-medium tracking-[0.3em] uppercase">For one or two</p>
       <h1 className="text-text-primary text-3xl font-semibold tracking-tight mt-3">
-        Couples Food System
+        Cupla
       </h1>
     </div>
   );
@@ -315,25 +385,49 @@ function SecondaryButton({
   );
 }
 
-function WelcomeStep({ onCreate }: { onCreate: () => void }) {
+function WelcomeStep({
+  onSolo,
+  onJoinCode,
+  onCreate,
+}: {
+  onSolo: () => void;
+  onJoinCode: () => void;
+  onCreate: () => void;
+}) {
   return (
     <div className="flex flex-col">
       <Wordmark />
 
-      <div className="text-center mb-12">
+      <div className="text-center mb-10">
         <h2 className="text-text-primary text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05]">
           One dinner.
           <br />
-          Two plates.
+          <span className="text-terracotta">Your way.</span>
           <br />
           <span className="text-sage">Zero arguments.</span>
         </h2>
         <p className="text-text-secondary text-base mt-6 leading-relaxed max-w-sm mx-auto">
-          A shared kitchen for the two of you. One grocery list, one plan, cooked together.
+          Plan meals that work for you — solo or with someone.
         </p>
       </div>
 
-      <PrimaryButton onClick={onCreate}>Set up our kitchen</PrimaryButton>
+      <div className="space-y-3">
+        <PrimaryButton onClick={onSolo}>Cooking solo</PrimaryButton>
+        <button
+          type="button"
+          onClick={onJoinCode}
+          className="w-full bg-transparent text-sage font-medium py-4 px-6 rounded-2xl border border-sage/30 hover:bg-sage/5 transition-colors"
+        >
+          I have a code
+        </button>
+        <button
+          type="button"
+          onClick={onCreate}
+          className="w-full bg-transparent text-text-secondary font-medium py-4 px-6 rounded-2xl border border-border hover:bg-cream-dark transition-colors"
+        >
+          Setting up for two
+        </button>
+      </div>
     </div>
   );
 }
@@ -489,7 +583,7 @@ function GoalsStep({
           Any body goals?
         </h2>
         <p className="text-text-secondary text-sm mt-2">
-          This helps us adapt portions so you both hit your targets. Skip if you're not sure.
+          This helps us adapt portions to your body. Skip if you're not sure.
         </p>
       </div>
 
@@ -832,6 +926,82 @@ function CreatedStep({
       <p className="text-text-secondary text-sm text-center mt-4">
         You can also share this code later from the app header.
       </p>
+    </div>
+  );
+}
+
+function ReadyStep({
+  inviteCode,
+  onContinue,
+}: {
+  inviteCode: string | null;
+  onContinue: () => void;
+}) {
+  const [showCode, setShowCode] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!inviteCode) return;
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+    }
+  }
+
+  return (
+    <div className="flex flex-col">
+      <Wordmark />
+
+      <div className="text-center mb-8">
+        <p className="text-sage text-sm font-medium tracking-wide uppercase">You're all set</p>
+        <h2 className="text-text-primary text-3xl font-semibold tracking-tight mt-3">
+          Welcome to your kitchen
+        </h2>
+        <p className="text-text-secondary text-base mt-3 leading-relaxed">
+          Start adding groceries or chat with the AI to plan your first meal.
+        </p>
+      </div>
+
+      {inviteCode && (
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={() => setShowCode(!showCode)}
+            className="w-full text-center text-text-secondary text-sm hover:text-text-primary transition-colors"
+          >
+            {showCode ? 'Hide invite code' : 'Invite someone later?'}
+          </button>
+          {showCode && (
+            <div className="mt-4 space-y-4">
+              <div className="flex gap-2 justify-center">
+                {inviteCode.split('').map((d, i) => (
+                  <div
+                    key={i}
+                    className="w-full aspect-square bg-white border border-border rounded-xl flex items-center justify-center text-text-primary text-2xl font-semibold"
+                  >
+                    {d}
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className={`w-full font-medium py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                  copied
+                    ? 'bg-sage text-white'
+                    : 'bg-white border border-border text-text-primary hover:bg-cream-dark'
+                }`}
+              >
+                {copied ? 'Copied!' : 'Copy code'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <PrimaryButton onClick={onContinue}>Start cooking</PrimaryButton>
     </div>
   );
 }

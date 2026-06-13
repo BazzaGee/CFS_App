@@ -4,6 +4,7 @@ import { apiFetch, getWsBaseUrl } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
 import type { GroceryItem, PartnerSlot, SyncEvent, Category } from '../types/grocery';
 import { drainQueue, pushToQueue, getQueueLength } from '../lib/offlineQueue';
+import { useNotifications } from './useNotifications';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed';
 
@@ -12,6 +13,7 @@ const QUERY_KEY = (householdId: string) => ['grocery', householdId] as const;
 export function useGroceryList() {
   const session = useAuthStore((s) => s.session);
   const queryClient = useQueryClient();
+  const { processEvent } = useNotifications();
 
   const householdId = session?.householdId ?? '';
   const token = session?.token ?? '';
@@ -135,6 +137,7 @@ export function useGroceryList() {
         try {
           const event = JSON.parse(e.data) as SyncEvent;
           applyEvent(event);
+          processEvent(event);
         } catch {
         }
       };

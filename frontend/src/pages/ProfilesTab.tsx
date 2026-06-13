@@ -31,13 +31,14 @@ export default function ProfilesTab() {
   const [editingBody, setEditingBody] = useState(false);
   const [formName, setFormName] = useState('');
   const [formDiet, setFormDiet] = useState<Diet>('omnivore');
-  const [formAllergies, setFormAllergies] = useState('');
   const [formWeight, setFormWeight] = useState('');
   const [formHeight, setFormHeight] = useState('');
   const [formAge, setFormAge] = useState('');
   const [formGender, setFormGender] = useState<Gender>('male');
   const [formActivity, setFormActivity] = useState<ActivityLevel>('sedentary');
   const [formGoal, setFormGoal] = useState<Goal>('maintain');
+  const [allergenChips, setAllergenChips] = useState<string[]>([]);
+  const [newAllergen, setNewAllergen] = useState('');
   const [saving, setSaving] = useState(false);
   const [linkDigits, setLinkDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -96,7 +97,8 @@ export default function ProfilesTab() {
   function startEdit(profile: PartnerProfile) {
     setFormName(profile.name);
     setFormDiet(profile.diet);
-    setFormAllergies(profile.allergies);
+    setAllergenChips(profile.allergens ?? []);
+    setNewAllergen('');
     setFormWeight(profile.weightKg?.toString() ?? '');
     setFormHeight(profile.heightCm?.toString() ?? '');
     setFormAge(profile.age?.toString() ?? '');
@@ -111,10 +113,12 @@ export default function ProfilesTab() {
     if (!myProfile) return;
     setSaving(true);
     try {
+      const dedupedAllergens = [...new Set(allergenChips.map((a) => a.trim().toLowerCase()).filter(Boolean))];
       await updateProfile(myProfile.id, {
         name: formName.trim() || myProfile.name,
         diet: formDiet,
-        allergies: formAllergies.trim(),
+        allergies: dedupedAllergens.join(', '),
+        allergens: dedupedAllergens,
         weightKg: formWeight ? parseFloat(formWeight) : null,
         heightCm: formHeight ? parseFloat(formHeight) : null,
         age: formAge ? parseInt(formAge) : null,
@@ -165,7 +169,7 @@ export default function ProfilesTab() {
         saving={saving}
         formName={formName}
         formDiet={formDiet}
-        formAllergies={formAllergies}
+        formAllergens={allergenChips}
         formWeight={formWeight}
         formHeight={formHeight}
         formAge={formAge}
@@ -174,13 +178,15 @@ export default function ProfilesTab() {
         formGoal={formGoal}
         onFormNameChange={setFormName}
         onFormDietChange={setFormDiet}
-        onFormAllergiesChange={setFormAllergies}
+        onFormAllergensChange={setAllergenChips}
         onFormWeightChange={setFormWeight}
         onFormHeightChange={setFormHeight}
         onFormAgeChange={setFormAge}
         onFormGenderChange={setFormGender}
         onFormActivityChange={setFormActivity}
         onFormGoalChange={setFormGoal}
+        newAllergenInput={newAllergen}
+        setNewAllergenInput={setNewAllergen}
         onToggleBody={() => setEditingBody(!editingBody)}
         onSave={handleSave}
         onCancel={() => { setEditing(false); setEditingBody(false); }}
@@ -191,50 +197,56 @@ export default function ProfilesTab() {
       )}
 
       {!otherProfile && (
-        <section className="bg-white border border-border rounded-2xl p-6">
-          <h3 className="text-text-primary text-lg font-semibold mb-2">Link with your partner</h3>
-          <p className="text-text-secondary text-sm leading-relaxed mb-6">
-            Enter your partner's 6-digit code to join their kitchen.
-          </p>
-
-          <div className="space-y-4">
-            <div className="flex gap-2 justify-center" onPaste={handleLinkPaste}>
-              {linkDigits.map((d, i) => (
-                <input
-                  key={i}
-                  id={`link-code-${i}`}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={1}
-                  value={d}
-                  onChange={(e) => {
-                    setLinkDigit(i, e.target.value);
-                    if (linkError) setLinkError(null);
-                  }}
-                  onKeyDown={(e) => handleLinkDigitKeyDown(i, e)}
-                  autoFocus={i === 0}
-                  className="w-full aspect-square bg-cream border border-border rounded-xl text-center text-text-primary text-2xl font-semibold focus:outline-none focus:border-sage focus:ring-2 focus:ring-sage/20 transition-colors"
-                />
-              ))}
+        <details className="bg-white border border-border rounded-2xl group">
+          <summary className="p-6 cursor-pointer list-none flex items-center justify-between hover:bg-cream/30 transition-colors rounded-2xl">
+            <div>
+              <h3 className="text-text-primary text-lg font-semibold">Cooking with someone?</h3>
+              <p className="text-text-secondary text-sm mt-0.5">Link your kitchen to a partner.</p>
             </div>
+            <span className="text-text-secondary text-xs group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div className="px-6 pb-6 border-t border-border pt-4">
+            <p className="text-text-secondary text-sm leading-relaxed mb-6">
+              Enter their 6-digit invite code to join their kitchen.
+            </p>
+            <div className="space-y-4">
+              <div className="flex gap-2 justify-center" onPaste={handleLinkPaste}>
+                {linkDigits.map((d, i) => (
+                  <input
+                    key={i}
+                    id={`link-code-${i}`}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={d}
+                    onChange={(e) => {
+                      setLinkDigit(i, e.target.value);
+                      if (linkError) setLinkError(null);
+                    }}
+                    onKeyDown={(e) => handleLinkDigitKeyDown(i, e)}
+                    className="w-full aspect-square bg-cream border border-border rounded-xl text-center text-text-primary text-2xl font-semibold focus:outline-none focus:border-sage focus:ring-2 focus:ring-sage/20 transition-colors"
+                  />
+                ))}
+              </div>
 
-            {linkError && (
-              <p className="text-error text-sm text-center" role="alert">
-                {linkError}
-              </p>
-            )}
+              {linkError && (
+                <p className="text-error text-sm text-center" role="alert">
+                  {linkError}
+                </p>
+              )}
 
-            <button
-              type="button"
-              onClick={handleLink}
-              disabled={linking}
-              className="w-full bg-sage text-white font-medium py-3 px-6 rounded-xl hover:bg-sage-dark active:scale-[0.99] transition-all disabled:opacity-50"
-            >
-              {linking ? 'Linking…' : 'Link kitchens'}
-            </button>
+              <button
+                type="button"
+                onClick={handleLink}
+                disabled={linking}
+                className="w-full bg-sage text-white font-medium py-3 px-6 rounded-xl hover:bg-sage-dark active:scale-[0.99] transition-all disabled:opacity-50"
+              >
+                {linking ? 'Linking…' : 'Link kitchens'}
+              </button>
+            </div>
           </div>
-        </section>
+        </details>
       )}
     </div>
   );
@@ -249,7 +261,7 @@ function ProfileCard({
   saving,
   formName,
   formDiet,
-  formAllergies,
+  formAllergens,
   formWeight,
   formHeight,
   formAge,
@@ -258,13 +270,15 @@ function ProfileCard({
   formGoal,
   onFormNameChange,
   onFormDietChange,
-  onFormAllergiesChange,
+  onFormAllergensChange,
   onFormWeightChange,
   onFormHeightChange,
   onFormAgeChange,
   onFormGenderChange,
   onFormActivityChange,
   onFormGoalChange,
+  newAllergenInput,
+  setNewAllergenInput,
   onToggleBody,
   onSave,
   onCancel,
@@ -277,7 +291,7 @@ function ProfileCard({
   saving?: boolean;
   formName?: string;
   formDiet?: Diet;
-  formAllergies?: string;
+  formAllergens?: string[];
   formWeight?: string;
   formHeight?: string;
   formAge?: string;
@@ -286,13 +300,15 @@ function ProfileCard({
   formGoal?: Goal;
   onFormNameChange?: (v: string) => void;
   onFormDietChange?: (v: Diet) => void;
-  onFormAllergiesChange?: (v: string) => void;
+  onFormAllergensChange?: (v: string[]) => void;
   onFormWeightChange?: (v: string) => void;
   onFormHeightChange?: (v: string) => void;
   onFormAgeChange?: (v: string) => void;
   onFormGenderChange?: (v: Gender) => void;
   onFormActivityChange?: (v: ActivityLevel) => void;
   onFormGoalChange?: (v: Goal) => void;
+  newAllergenInput?: string;
+  setNewAllergenInput?: (v: string) => void;
   onToggleBody?: () => void;
   onSave?: () => void;
   onCancel?: () => void;
@@ -353,17 +369,60 @@ function ProfileCard({
           </div>
 
           <div>
-            <label htmlFor="profile-allergies" className="text-text-secondary text-xs font-medium tracking-wide block mb-2">
+            <label className="text-text-secondary text-xs font-medium tracking-wide block mb-2">
               Allergies
             </label>
-            <input
-              id="profile-allergies"
-              type="text"
-              value={formAllergies}
-              onChange={(e) => onFormAllergiesChange?.(e.target.value)}
-              placeholder="peanuts, shellfish, dairy…"
-              className="w-full bg-cream border border-border rounded-xl px-4 py-3 text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-sage focus:ring-2 focus:ring-sage/20 transition-colors"
-            />
+            {formAllergens && formAllergens.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {formAllergens.map((a, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 bg-terracotta/10 text-terracotta text-xs font-medium px-2.5 py-1 rounded-lg">
+                    {a}
+                    {onFormAllergensChange && (
+                      <button
+                        type="button"
+                        onClick={() => onFormAllergensChange(formAllergens.filter((_, j) => j !== i))}
+                        className="hover:text-terracotta-dark ml-0.5"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newAllergenInput ?? ''}
+                onChange={(e) => setNewAllergenInput?.(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    const cleaned = e.currentTarget.value.trim().toLowerCase();
+                    if (cleaned && formAllergens && !formAllergens.includes(cleaned)) {
+                      onFormAllergensChange?.([...formAllergens, cleaned]);
+                    }
+                    setNewAllergenInput?.('');
+                  }
+                }}
+                placeholder="peanuts, shellfish…"
+                className="flex-1 bg-cream border border-border rounded-xl px-4 py-3 text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-sage focus:ring-2 focus:ring-sage/20 transition-colors text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const cleaned = (newAllergenInput ?? '').trim().toLowerCase();
+                  if (cleaned && formAllergens && !formAllergens.includes(cleaned)) {
+                    onFormAllergensChange?.([...formAllergens, cleaned]);
+                  }
+                  setNewAllergenInput?.('');
+                }}
+                disabled={!(newAllergenInput ?? '').trim()}
+                className="bg-sage text-white text-sm font-medium px-4 rounded-xl hover:bg-sage-dark disabled:opacity-40 transition-colors"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           {!editingBody ? (
@@ -498,9 +557,16 @@ function ProfileCard({
           </div>
           <div>
             <p className="text-text-secondary text-xs tracking-wide uppercase">Allergies</p>
-            <p className="text-text-primary text-base">
-              {profile.allergies || 'None'}
-            </p>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {profile.allergens && profile.allergens.length > 0
+                ? profile.allergens.map((a, i) => (
+                    <span key={i} className="inline-flex items-center bg-terracotta/10 text-terracotta text-xs font-medium px-2 py-0.5 rounded-lg">
+                      {a}
+                    </span>
+                  ))
+                : <p className="text-text-primary text-base">{profile.allergies || 'None'}</p>
+              }
+            </div>
           </div>
           {profile.tdee && (
             <>

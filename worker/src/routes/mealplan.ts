@@ -82,8 +82,8 @@ export async function handleGenerateWeekPlan(c: Context<{ Bindings: Env }>) {
   const p2 = profiles.find((p) => p.slot === 2);
   const p1Diet = p1?.diet ?? 'omnivore';
   const p2Diet = p2?.diet ?? 'omnivore';
-  const p1Allergies = p1?.allergies ?? '';
-  const p2Allergies = p2?.allergies ?? '';
+  const p1Allergens = p1?.allergens ?? [];
+  const p2Allergens = p2?.allergens ?? [];
   const p1Goal = p1?.goal ?? null;
   const p2Goal = p2?.goal ?? null;
   const p1Body = p1?.tdee ? { name: p1.name, tdee: p1.tdee } : undefined;
@@ -94,10 +94,20 @@ export async function handleGenerateWeekPlan(c: Context<{ Bindings: Env }>) {
     .fetch('https://do/pantry');
   const pantryItems = (await pantryRes.json()) as Array<{ name: string; quantity: string }>;
 
+  const partnerContext = profiles.map((p) => ({
+    name: p.name,
+    diet: (p.diet || 'omnivore') as 'omnivore' | 'vegetarian' | 'vegan' | 'pescatarian' | 'keto' | 'paleo' | 'gluten-free',
+    allergens: p.allergens,
+    tdee: p.tdee,
+    goal: p.goal,
+    activityLevel: p.activityLevel,
+    slot: p.slot as 1 | 2,
+  }));
+
   const meals: Array<{ dayOfWeek: DayOfWeek; mealName: string; mealData: string }> = [];
 
   for (const day of DAYS) {
-    const meal = await generateMeal(c.env, pantryItems, p1Diet, p2Diet, p1Allergies, p2Allergies, p1Goal, p2Goal, p1Body, p2Body);
+    const meal = await generateMeal(c.env, pantryItems, p1Diet, p2Diet, p1Allergens, p2Allergens, p1Goal, p2Goal, p1Body, p2Body, partnerContext);
     if (meal) {
       meals.push({
         dayOfWeek: day,

@@ -5,6 +5,7 @@ export interface CreateHouseholdInput {
   displayName: string;
   diet?: string;
   allergies?: string;
+  allergens?: string[];
   goal?: string;
   weightKg?: number | null;
   heightCm?: number | null;
@@ -18,6 +19,7 @@ export interface JoinHouseholdInput {
   displayName: string;
   diet?: string;
   allergies?: string;
+  allergens?: string[];
   goal?: string;
   weightKg?: number | null;
   heightCm?: number | null;

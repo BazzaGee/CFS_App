@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, type FormEvent } from 'react';
-import { Sparkles, Clock, Plus, Check, CalendarDays, Bookmark, Send, ShoppingCart, Package, ChevronDown, ChevronUp, Trash2, ImageIcon, RefreshCw, AlertCircle } from 'lucide-react';
+import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from 'react';
+import { Sparkles, Clock, Plus, Check, CalendarDays, Bookmark, Send, ShoppingCart, Package, ChevronDown, ChevronUp, Trash2, ImageIcon, RefreshCw, AlertCircle, Mic } from 'lucide-react';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useMealChat, type ChatMessage } from '../hooks/useMealChat';
 import { useRecipes } from '../hooks/useRecipes';
 import { useWeekPlan } from '../hooks/useWeekPlan';
@@ -26,7 +27,7 @@ export default function MealPlanTab() {
 
   return (
     <div className="px-6 py-4">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-cream py-4 -mx-6 px-6 border-b border-terracotta/30 -mt-4 mb-4">
         <div>
           <h1 className="text-text-primary text-3xl font-semibold tracking-tight">
             {view === 'single' ? 'What should we cook?' : view === 'saved' ? 'Our recipes' : 'Our week'}
@@ -80,6 +81,10 @@ function MealChatView() {
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const lastMsgRef = useRef<HTMLDivElement>(null);
+  const { isSupported: micSupported, isListening, transcript, start: startListening, stop: stopListening, resetTranscript } = useSpeechRecognition();
+  const [showMicHint, setShowMicHint] = useState(false);
+  const micHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (lastMsgRef.current) {
@@ -87,11 +92,48 @@ function MealChatView() {
     }
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    if (transcript) setInput(transcript);
+  }, [transcript]);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }, [input, transcript]);
+
+  useEffect(() => {
+    return () => {
+      if (micHintTimerRef.current) clearTimeout(micHintTimerRef.current);
+    };
+  }, []);
+
+  function handleMicClick() {
+    if (micSupported) {
+      if (isListening) {
+        stopListening();
+      } else {
+        startListening(input);
+      }
+    } else {
+      setShowMicHint(true);
+      if (micHintTimerRef.current) clearTimeout(micHintTimerRef.current);
+      micHintTimerRef.current = setTimeout(() => {
+        setShowMicHint(false);
+        micHintTimerRef.current = null;
+      }, 4000);
+    }
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!input.trim() || isTyping) return;
     sendMessage(input);
     setInput('');
+    resetTranscript();
+    const el = inputRef.current;
+    if (el) el.style.height = 'auto';
   }
 
   function handleGenerateMeal() {
@@ -104,8 +146,8 @@ function MealChatView() {
       <div ref={listRef} className="flex-1 overflow-y-auto space-y-4 pb-4">
         {messages.length === 0 && !isTyping && (
           <div className="text-center pt-12 pb-4">
-            <div className="w-16 h-16 bg-sage/10 rounded-full flex items-center justify-center mx-auto mb-5">
-              <Sparkles size={28} className="text-sage" />
+            <div className="w-16 h-16 bg-terracotta/10 rounded-full flex items-center justify-center mx-auto mb-5">
+              <Sparkles size={28} className="text-terracotta" />
             </div>
             <p className="text-text-primary text-xl font-semibold mb-1">
               What should we cook?
@@ -116,7 +158,7 @@ function MealChatView() {
             <button
               type="button"
               onClick={handleGenerateMeal}
-              className="bg-sage text-white font-medium py-3.5 px-8 rounded-2xl hover:bg-sage-dark active:scale-[0.98] transition-all inline-flex items-center gap-2 text-base"
+              className="bg-terracotta text-white font-medium py-3.5 px-8 rounded-2xl hover:bg-terracotta-dark active:scale-[0.98] transition-all inline-flex items-center gap-2 text-base"
             >
               <Sparkles size={20} />
               Generate a meal
@@ -134,9 +176,9 @@ function MealChatView() {
           <div className="flex justify-start">
             <div className="bg-cream border border-border rounded-2xl rounded-bl-md px-4 py-3 max-w-[85%]">
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-sage/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-sage/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-sage/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="w-2 h-2 bg-terracotta/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 bg-terracotta/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-terracotta/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>
@@ -148,7 +190,7 @@ function MealChatView() {
             <button
               type="button"
               onClick={clearChat}
-              className="mt-2 text-sage text-sm font-medium hover:text-sage-dark"
+              className="mt-2 text-terracotta text-sm font-medium hover:text-terracotta-dark"
             >
               Start over
             </button>
@@ -157,19 +199,54 @@ function MealChatView() {
       </div>
 
       <div className="border-t border-border pt-3 mt-2">
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <input
-            type="text"
+        <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+          <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (input.trim() && !isTyping) {
+                  sendMessage(input);
+                  setInput('');
+                  resetTranscript();
+                  const el = inputRef.current;
+                  if (el) el.style.height = 'auto';
+                }
+              }
+            }}
             placeholder="Questions? Substitutions? Ask here..."
             disabled={isTyping}
-            className="flex-1 bg-white border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage/50 disabled:opacity-50 transition-colors"
+            rows={1}
+            className="flex-1 bg-white border border-border rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-terracotta/30 focus:border-terracotta/50 disabled:opacity-50 transition-colors resize-none overflow-y-auto"
+            style={{ maxHeight: '120px' }}
           />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={handleMicClick}
+              className={`px-3 py-3 rounded-xl transition-all flex items-center ${
+                isListening
+                  ? 'bg-terracotta text-white animate-pulse'
+                  : 'bg-white text-text-secondary border border-border hover:bg-cream hover:text-terracotta'
+              }`}
+            >
+              <Mic size={18} />
+            </button>
+            {showMicHint && (
+              <div className="absolute bottom-full right-0 mb-2 w-56 bg-cream border border-border rounded-xl px-3 py-2.5 text-xs text-text-secondary shadow-lg z-20 leading-relaxed">
+                <p>
+                  <span className="font-medium text-text-primary">Speech-to-text isn't supported in this browser.</span>{' '}
+                  Try your keyboard's microphone button instead.
+                </p>
+              </div>
+            )}
+          </div>
           <button
             type="submit"
             disabled={!input.trim() || isTyping}
-            className="bg-sage text-white px-4 py-3 rounded-xl hover:bg-sage-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center"
+            className="bg-terracotta text-white px-4 py-3 rounded-xl hover:bg-terracotta-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center"
           >
             <Send size={18} />
           </button>
@@ -179,7 +256,7 @@ function MealChatView() {
             <button
               type="button"
               onClick={handleGenerateMeal}
-              className="text-sage text-xs font-medium hover:text-sage-dark transition-colors flex items-center gap-1"
+              className="text-terracotta text-xs font-medium hover:text-terracotta-dark transition-colors flex items-center gap-1"
             >
               <Sparkles size={12} />
               New meal
@@ -206,7 +283,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       <div
         className={`max-w-[85%] rounded-2xl ${
           isUser
-            ? 'bg-sage text-white rounded-br-md px-4 py-3'
+            ? 'bg-terracotta text-white rounded-br-md px-4 py-3'
             : 'bg-white border border-border rounded-bl-md px-4 py-3'
         }`}
       >
@@ -273,10 +350,10 @@ function InlineMealCard({ meal }: { meal: GeneratedMeal }) {
             <Clock size={12} />
             {meal.timeMinutes}m
           </span>
-          <span className="flex items-center gap-1 text-sage font-medium">
-            <Check size={12} />
-            {haveCount} in pantry
-          </span>
+            <span className="flex items-center gap-1 text-terracotta font-medium">
+              <Check size={12} />
+              {haveCount} in pantry
+            </span>
           {missingCount > 0 && (
             <span className="flex items-center gap-1 text-terracotta font-medium">
               <Plus size={12} />
@@ -298,27 +375,27 @@ function InlineMealCard({ meal }: { meal: GeneratedMeal }) {
             </div>
           ))}
         </div>
+        {imageUrl && (
+          <div className="border-t border-border/50 mt-3 pt-3">
+            <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Photo</p>
+            <img src={imageUrl} alt={meal.name} className="w-full rounded-lg object-cover aspect-square" loading="lazy" />
+          </div>
+        )}
+        {imageError && !imageGenerating && (
+          <p className="text-error text-xs flex items-center gap-1 mt-3"><AlertCircle size={12} /> {imageError}</p>
+        )}
       </div>
 
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-center text-xs text-sage font-medium py-2 border-t border-border/50 hover:bg-cream/80 transition-colors"
+        className="w-full text-center text-xs text-terracotta font-medium py-2 border-t border-border/50 hover:bg-cream/80 transition-colors"
       >
         {expanded ? 'Hide' : 'Show'} ingredients & steps
       </button>
 
       {expanded && (
         <div className="px-4 py-3 border-t border-border/50 space-y-3">
-          {imageUrl && (
-            <div>
-              <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Photo</p>
-              <img src={imageUrl} alt={meal.name} className="w-full rounded-lg object-cover aspect-square mb-2" loading="lazy" />
-            </div>
-          )}
-          {imageError && !imageGenerating && (
-            <p className="text-error text-xs flex items-center gap-1"><AlertCircle size={12} /> {imageError}</p>
-          )}
           <div>
             <p className="text-text-secondary text-[10px] uppercase tracking-[0.15em] font-medium mb-2">Ingredients</p>
             <ul className="space-y-1.5">
@@ -340,7 +417,7 @@ function InlineMealCard({ meal }: { meal: GeneratedMeal }) {
             <ol className="space-y-2">
               {meal.steps.map((step, i) => (
                 <li key={i} className="flex gap-2">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-sage/10 text-sage text-[10px] font-semibold flex items-center justify-center">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-terracotta/10 text-terracotta text-[10px] font-semibold flex items-center justify-center">
                     {i + 1}
                   </span>
                   <p className="text-text-primary text-xs leading-relaxed pt-0.5">{step}</p>
@@ -369,7 +446,7 @@ function InlineMealCard({ meal }: { meal: GeneratedMeal }) {
           disabled={imageGenerating}
           className={`text-xs font-medium py-2 px-3 rounded-lg transition-all flex items-center gap-1.5 ${
             imageUrl
-              ? 'bg-sage/10 text-sage border border-sage/30'
+              ? 'bg-terracotta/10 text-terracotta border border-terracotta/30'
               : 'bg-white text-text-secondary border border-border hover:bg-cream'
           } disabled:opacity-40`}
         >
@@ -383,7 +460,7 @@ function InlineMealCard({ meal }: { meal: GeneratedMeal }) {
           type="button"
           onClick={handleAddMissing}
           disabled={missingCount === 0 || addedMissing}
-          className="flex-1 bg-sage text-white text-xs font-medium py-2 px-3 rounded-lg hover:bg-sage-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+          className="flex-1 bg-terracotta text-white text-xs font-medium py-2 px-3 rounded-lg hover:bg-terracotta-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
         >
           <Plus size={12} />
           {addedMissing ? 'Added' : `Add ${missingCount} to list`}
@@ -394,7 +471,7 @@ function InlineMealCard({ meal }: { meal: GeneratedMeal }) {
           disabled={isSaving || hasSaved}
           className={`text-xs font-medium py-2 px-3 rounded-lg transition-all flex items-center gap-1.5 ${
             hasSaved
-              ? 'bg-sage/10 text-sage border border-sage/30'
+              ? 'bg-terracotta/10 text-terracotta border border-terracotta/30'
               : 'bg-white text-text-secondary border border-border hover:bg-cream'
           } disabled:opacity-40`}
         >
@@ -462,8 +539,8 @@ function SavedRecipesView() {
   if (!hasRecipes) {
     return (
       <div className="text-center py-16">
-        <div className="w-16 h-16 bg-sage/10 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Bookmark size={28} className="text-sage" />
+        <div className="w-16 h-16 bg-terracotta/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Bookmark size={28} className="text-terracotta" />
         </div>
         <p className="text-text-primary text-xl font-semibold mb-2">
           No saved recipes yet
@@ -621,7 +698,7 @@ function SavedRecipeCard({
               <ol className="space-y-2">
                 {meal.steps.map((step, i) => (
                   <li key={i} className="flex gap-2">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-sage/10 text-sage text-[10px] font-semibold flex items-center justify-center">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-terracotta/10 text-terracotta text-[10px] font-semibold flex items-center justify-center">
                       {i + 1}
                     </span>
                     <p className="text-text-primary text-xs leading-relaxed pt-0.5">{step}</p>
@@ -649,7 +726,7 @@ function SavedRecipeCard({
               disabled={imageGenerating}
               className={`text-xs font-medium py-2 px-3 rounded-lg transition-all flex items-center gap-1.5 ${
                 imageUrl
-                  ? 'bg-sage/10 text-sage border border-sage/30'
+                  ? 'bg-terracotta/10 text-terracotta border border-terracotta/30'
                   : 'bg-cream text-text-secondary border border-border hover:bg-cream-dark'
               } disabled:opacity-40`}
             >
@@ -663,7 +740,7 @@ function SavedRecipeCard({
               type="button"
               onClick={handleAddMissing}
               disabled={missingCount === 0 || addedMissing}
-              className="flex-1 bg-sage text-white text-xs font-medium py-2 px-3 rounded-lg hover:bg-sage-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              className="flex-1 bg-terracotta text-white text-xs font-medium py-2 px-3 rounded-lg hover:bg-terracotta-dark active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
             >
               <Plus size={12} />
               {addedMissing ? 'Added' : `Add ${missingCount} to list`}
@@ -719,8 +796,8 @@ function WeekView() {
   if (!hasPlan && !isGenerating) {
     return (
       <div className="text-center py-16">
-        <div className="w-16 h-16 bg-sage/10 rounded-full flex items-center justify-center mx-auto mb-6">
-          <CalendarDays size={28} className="text-sage" />
+        <div className="w-16 h-16 bg-terracotta/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <CalendarDays size={28} className="text-terracotta" />
         </div>
         <p className="text-text-primary text-xl font-semibold mb-2">
           Plan the whole week
@@ -732,7 +809,7 @@ function WeekView() {
           type="button"
           onClick={generateWeek}
           disabled={isGenerating}
-          className="bg-sage text-white font-medium py-4 px-8 rounded-2xl hover:bg-sage-dark active:scale-[0.99] transition-all inline-flex items-center gap-2 disabled:opacity-50"
+          className="bg-terracotta text-white font-medium py-4 px-8 rounded-2xl hover:bg-terracotta-dark active:scale-[0.99] transition-all inline-flex items-center gap-2 disabled:opacity-50"
         >
           <CalendarDays size={18} />
           Generate the week
@@ -744,8 +821,8 @@ function WeekView() {
   if (isGenerating) {
     return (
       <div className="text-center py-16">
-        <div className="w-16 h-16 bg-sage/10 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
-          <CalendarDays size={28} className="text-sage" />
+        <div className="w-16 h-16 bg-terracotta/10 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+          <CalendarDays size={28} className="text-terracotta" />
         </div>
         <p className="text-text-primary text-lg font-medium">Planning your week…</p>
         <p className="text-text-secondary text-sm mt-2">This takes a moment.</p>
@@ -785,7 +862,7 @@ function WeekView() {
         type="button"
         onClick={handlePopulateList}
         disabled={totalMissing.size === 0}
-        className="w-full bg-sage text-white font-medium py-3 px-6 rounded-xl hover:bg-sage-dark active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="w-full bg-terracotta text-white font-medium py-3 px-6 rounded-xl hover:bg-terracotta-dark active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         <Plus size={16} />
         Add {totalMissing.size} missing ingredients to list

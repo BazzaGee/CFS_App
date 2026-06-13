@@ -6,6 +6,7 @@ import ShoppingTab from './pages/ShoppingTab';
 import PantryTab from './pages/PantryTab';
 import ProfilesTab from './pages/ProfilesTab';
 import MealPlanTab from './pages/MealPlanTab';
+import { usePushNotifications } from './hooks/usePushNotifications';
 
 function App() {
   return (
@@ -35,6 +36,7 @@ function Gate({
 }) {
   const session = useAuthStore((s) => s.session);
   const hasCompleted = useAuthStore((s) => s.hasCompletedOnboarding);
+  usePushNotifications();
 
   if (requireAuthed && !session) return <Navigate to="/onboarding" replace />;
   if (requireAuthed && session && !hasCompleted) return <Navigate to="/onboarding" replace />;

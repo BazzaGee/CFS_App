@@ -1,5 +1,7 @@
 import type { Env } from '../env';
 import { parsePantryItemSync, type ParsedPantryItem } from '../lib/pantry-parser';
+import type { PushProvider, PushPayload } from '../lib/push-provider';
+import { WebPushProvider } from '../lib/push-web';
 
 export type Category = 'Produce' | 'Meat' | 'Dairy' | 'Pantry' | 'Household' | 'Personal Care' | 'Other';
 
@@ -164,6 +166,16 @@ const SCHEMA = `
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_parse_cache_created ON pantry_parse_cache(created_at);
+
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    partner_id TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (partner_id, endpoint)
+  );
 `;
 
 interface ConnectedPartner {
@@ -177,10 +189,14 @@ export class HouseholdSync {
   private initialized = false;
   private sockets = new Set<WebSocket>();
   private partnerBySocket = new WeakMap<WebSocket, ConnectedPartner>();
+  private pushProvider: PushProvider | null = null;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
+    if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
+      this.pushProvider = new WebPushProvider(env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
+    }
   }
 
   private async ensureSchema(): Promise<void> {
@@ -214,6 +230,65 @@ export class HouseholdSync {
         socket.send(payload);
       } catch {
       }
+    }
+
+    if (this.pushProvider && event.type !== 'hello') {
+      this.tryPushToDisconnected(event);
+    }
+  }
+
+  private findConnectedSlots(): Set<number> {
+    const connected = new Set<number>();
+    for (const socket of this.sockets) {
+      if (socket.readyState === WebSocket.OPEN) {
+        const partner = this.partnerBySocket.get(socket);
+        if (partner) connected.add(partner.slot);
+      }
+    }
+    return connected;
+  }
+
+  private async tryPushToDisconnected(event: SyncEvent): Promise<void> {
+    if (!this.pushProvider) return;
+
+    const connectedSlots = this.findConnectedSlots();
+    const pushPayload = this.eventToPushPayload(event);
+    if (!pushPayload) return;
+
+    const cursor = this.state.storage.sql.exec<{ partner_id: string; slot: number; endpoint: string; p256dh: string; auth: string }>(
+      'SELECT partner_id, slot, endpoint, p256dh, auth FROM push_subscriptions',
+    );
+    const subs = Array.from(cursor);
+
+    for (const sub of subs) {
+      if (connectedSlots.has(sub.slot)) continue;
+
+      try {
+        await this.pushProvider.send(
+          { partnerId: sub.partner_id, endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+          pushPayload,
+        );
+      } catch {
+      }
+    }
+  }
+
+  private eventToPushPayload(event: SyncEvent): PushPayload | null {
+    switch (event.type) {
+      case 'item_added':
+        return { title: 'Cupla', body: `New item added: ${event.item.name}`, tag: 'cfs-grocery' };
+      case 'items_added':
+        return { title: 'Cupla', body: `${event.items.length} item${event.items.length > 1 ? 's' : ''} added to shopping list`, tag: 'cfs-grocery' };
+      case 'item_toggled':
+        return { title: 'Cupla', body: `${event.item.name} ${event.item.isChecked ? 'checked off' : 'unchecked'}`, tag: 'cfs-grocery' };
+      case 'item_deleted':
+        return { title: 'Cupla', body: 'An item was removed', tag: 'cfs-grocery' };
+      case 'items_moved':
+        return { title: 'Cupla', body: `${event.deletedIds.length} item${event.deletedIds.length > 1 ? 's' : ''} moved to pantry`, tag: 'cfs-grocery' };
+      case 'item_updated':
+        return { title: 'Cupla', body: `${event.item.name} was updated`, tag: 'cfs-grocery' };
+      default:
+        return null;
     }
   }
 
@@ -386,6 +461,27 @@ export class HouseholdSync {
         };
         const result = await this.subtractPantryForMeal(body.usedIngredients);
         return this.json(result);
+      }
+
+      if (path === '/push/subscribe' && method === 'POST') {
+        const body = (await request.json()) as {
+          partnerId: string;
+          slot: number;
+          endpoint: string;
+          keys: { p256dh: string; auth: string };
+        };
+        if (!body.partnerId || !body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+          return this.json({ error: 'partnerId, slot, endpoint, keys.p256dh, keys.auth required' }, 400);
+        }
+        await this.savePushSubscription(body.partnerId, body.slot, body.endpoint, body.keys.p256dh, body.keys.auth);
+        return this.json({ ok: true });
+      }
+
+      if (path === '/push/unsubscribe' && method === 'DELETE') {
+        const body = (await request.json()) as { partnerId: string; endpoint?: string };
+        if (!body.partnerId) return this.json({ error: 'partnerId required' }, 400);
+        await this.removePushSubscription(body.partnerId, body.endpoint);
+        return this.json({ ok: true });
       }
 
       return this.json({ error: 'not_found', path, method }, 404);
@@ -854,5 +950,27 @@ export class HouseholdSync {
     }
 
     return { updated, removed };
+  }
+
+  private async savePushSubscription(partnerId: string, slot: number, endpoint: string, p256dh: string, auth: string): Promise<void> {
+    const now = Date.now();
+    this.state.storage.sql.exec(
+      `INSERT OR REPLACE INTO push_subscriptions (partner_id, slot, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      partnerId, slot, endpoint, p256dh, auth, now,
+    );
+  }
+
+  private async removePushSubscription(partnerId: string, endpoint?: string): Promise<void> {
+    if (endpoint) {
+      this.state.storage.sql.exec(
+        'DELETE FROM push_subscriptions WHERE partner_id = ? AND endpoint = ?',
+        partnerId, endpoint,
+      );
+    } else {
+      this.state.storage.sql.exec(
+        'DELETE FROM push_subscriptions WHERE partner_id = ?',
+        partnerId,
+      );
+    }
   }
 }

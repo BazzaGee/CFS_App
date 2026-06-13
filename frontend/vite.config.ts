@@ -3,24 +3,25 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  base: '/PWA/',
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'sw-push.js'],
       manifest: {
-        name: 'Couples Food System',
-        short_name: 'Cupla',
+        name: 'CookTwo',
+        short_name: 'CookTwo',
         description: 'One dinner. Two plates. Zero arguments.',
         theme_color: '#7A9E7E',
         background_color: '#FAF6EE',
         display: 'standalone',
-        start_url: '/',
-        scope: '/',
+        start_url: '/PWA/',
+        scope: '/PWA/',
         lang: 'en',
         orientation: 'portrait',
         categories: ['food', 'lifestyle', 'utilities'],
-        id: '/?v=2',
+        id: '/PWA/',
         icons: [
           {
             src: 'icon-192.png',
@@ -38,10 +39,11 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
-        navigateFallback: '/index.html',
+        navigateFallback: '/PWA/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         sourcemap: true,
+        importScripts: ['sw-push.js'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -66,7 +68,7 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: /^\/(?!api\/).*/,
+            urlPattern: /^\/PWA\/(?!api\/).*/,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'app-shell-cache',

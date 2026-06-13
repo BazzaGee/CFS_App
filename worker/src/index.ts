@@ -3,10 +3,11 @@ import { cors } from 'hono/cors';
 import { HouseholdSync } from './durable-objects/HouseholdSync';
 import { InviteStore } from './durable-objects/InviteStore';
 import { readBearer, signToken, verifyToken, type TokenClaims } from './lib/jwt';
-import { createPartner, getPartners, handleGetProfiles, handleUpdateProfile, updatePartner } from './routes/profiles';
+import { createPartner, getPartners, handleGetProfiles, handleUpdateProfile, updatePartner, type Diet } from './routes/profiles';
 import { handleGetWeekPlan, handleGenerateWeekPlan, handleConfirmMeal } from './routes/mealplan';
 import { handleGetRecipes, handleSaveRecipe, handleDeleteRecipe } from './routes/recipes';
 import { handleMealChat } from './routes/mealChat';
+import { handleSubscribe, handleVerify, handleValidateAccess } from './routes/waitlist';
 import { generateMeal, type GeneratedMeal } from './lib/ai';
 import { generateMealImage } from './lib/image-gen';
 import { parsePantryWithAI } from './lib/ai-pantry-parser';
@@ -29,8 +30,15 @@ async function verifyTokenForWs(
 
 const app = new Hono<{ Bindings: Env }>();
 
+const LOCALHOST_PORTS = Array.from({ length: 20 }, (_, i) => `http://localhost:${5173 + i}`);
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178', 'http://localhost:5179', 'http://localhost:5180', 'http://127.0.0.1:5173', 'https://cfs-app.pages.dev'],
+  origin: [
+    ...LOCALHOST_PORTS,
+    'http://127.0.0.1:5173',
+    'https://cfs-app.pages.dev',
+    'https://couples-food-system-v3.pages.dev',
+    'https://cooktwo.app',
+  ],
   credentials: true,
 }));
 
@@ -43,6 +51,10 @@ app.get('/', (c) =>
 );
 
 app.get('/health', (c) => c.text('ok'));
+
+app.post('/api/waitlist/subscribe', (c) => handleSubscribe(c));
+app.get('/api/waitlist/verify', (c) => handleVerify(c));
+app.post('/api/waitlist/validate-access', (c) => handleValidateAccess(c));
 
 function getStub(c: Context<{ Bindings: Env }>, householdId: string): DurableObjectStub {
   const id = c.env.HOUSEHOLD_SYNC.idFromName(householdId);
@@ -74,6 +86,7 @@ app.post('/api/household/create', async (c) => {
     displayName?: string;
     diet?: string;
     allergies?: string;
+    allergens?: string[];
     goal?: string;
     weightKg?: number | null;
     heightCm?: number | null;
@@ -95,9 +108,9 @@ app.post('/api/household/create', async (c) => {
     .bind(householdId, '__PLACEHOLDER__', now)
     .run();
 
-  await createPartner(c.env.DB, householdId, partnerId, slot, displayName);
+  await createPartner(c.env.DB, householdId, partnerId, slot, displayName, body.allergens);
 
-  if (body.diet || body.allergies || body.goal || body.weightKg || body.heightCm || body.age || body.gender || body.activityLevel) {
+  if (body.diet || body.allergies || body.allergens || body.goal || body.weightKg || body.heightCm || body.age || body.gender || body.activityLevel) {
     await updatePartner(c.env.DB, partnerId, {
       diet: body.diet,
       allergies: body.allergies,
@@ -140,6 +153,7 @@ app.post('/api/household/join', async (c) => {
     displayName?: string;
     diet?: string;
     allergies?: string;
+    allergens?: string[];
     goal?: string;
     weightKg?: number | null;
     heightCm?: number | null;
@@ -162,9 +176,9 @@ app.post('/api/household/join', async (c) => {
   const partnerId = crypto.randomUUID();
   const slot = 2 as const;
 
-  await createPartner(c.env.DB, householdId, partnerId, slot, displayName);
+  await createPartner(c.env.DB, householdId, partnerId, slot, displayName, body.allergens);
 
-  if (body.diet || body.allergies || body.goal || body.weightKg || body.heightCm || body.age || body.gender || body.activityLevel) {
+  if (body.diet || body.allergies || body.allergens || body.goal || body.weightKg || body.heightCm || body.age || body.gender || body.activityLevel) {
     await updatePartner(c.env.DB, partnerId, {
       diet: body.diet,
       allergies: body.allergies,
@@ -393,6 +407,30 @@ app.patch('/api/household/:id/pantry/:itemId', async (c) => {
   });
 });
 
+app.post('/api/household/:id/push/subscribe', async (c) => {
+  const denied = await requireAuth(c);
+  if (denied) return denied;
+  const stub = getStub(c, c.req.param('id'));
+  const body = await c.req.json();
+  return stub.fetch('https://do/push/subscribe', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  });
+});
+
+app.delete('/api/household/:id/push/unsubscribe', async (c) => {
+  const denied = await requireAuth(c);
+  if (denied) return denied;
+  const stub = getStub(c, c.req.param('id'));
+  const body = await c.req.json();
+  return stub.fetch('https://do/push/unsubscribe', {
+    method: 'DELETE',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  });
+});
+
 app.post('/api/household/:id/reclassify', async (c) => {
   const denied = await requireAuth(c);
   if (denied) return denied;
@@ -502,15 +540,15 @@ app.post('/api/household/:id/meal-plan/generate', async (c) => {
   const p2 = profiles.find((p) => p.slot === 2);
   const p1Diet = p1?.diet ?? 'omnivore';
   const p2Diet = p2?.diet ?? 'omnivore';
-  const p1Allergies = p1?.allergies ?? '';
-  const p2Allergies = p2?.allergies ?? '';
+  const p1Allergens = p1?.allergens ?? [];
+  const p2Allergens = p2?.allergens ?? [];
   const p1Goal = p1?.goal ?? null;
   const p2Goal = p2?.goal ?? null;
 
   const p1Body = p1?.tdee ? { name: p1.name, tdee: p1.tdee } : undefined;
   const p2Body = p2?.tdee ? { name: p2.name, tdee: p2.tdee } : undefined;
 
-  const meal = await generateMeal(c.env, pantryItems, p1Diet, p2Diet, p1Allergies, p2Allergies, p1Goal, p2Goal, p1Body, p2Body);
+  const meal = await generateMeal(c.env, pantryItems, p1Diet, p2Diet, p1Allergens, p2Allergens, p1Goal, p2Goal, p1Body, p2Body, profiles.map((p) => ({ name: p.name, diet: p.diet as Diet, allergens: p.allergens, tdee: p.tdee, goal: p.goal, activityLevel: p.activityLevel, slot: p.slot as 1 | 2 })));
   if (!meal) {
     return c.json({ error: 'AI meal generation failed. Please try again later.' }, 503);
   }
