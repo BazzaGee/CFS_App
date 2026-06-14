@@ -329,6 +329,23 @@ When all 12 pass, **Step 1 is done. Tell the assistant you're ready for Step 2.*
 
 ---
 
+## Pre-release checklist
+
+Run this before every production deploy:
+
+- [ ] `cd worker && npm test` — 64+ tests pass
+- [ ] `cd frontend && npm test` — 5+ tests pass
+- [ ] `cd worker && npm run typecheck` — no errors
+- [ ] `cd frontend && npm run typecheck` — no errors
+- [ ] `npx wrangler d1 migrations apply couples-food-system` — no pending migrations
+- [ ] All 3 AI provider secrets (`DEEPSEEK_KEY`, `ALIBABA_KEY`, `ZAI_KEY`) set in prod
+- [ ] `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` set in prod
+- [ ] `SITE_URL`, `PWA_URL`, `RESEND_FROM` are production values
+- [ ] `JWT_SECRET` differs from dev default — verify by decoding a prod token
+- [ ] `frontend/.env.production` `VITE_API_URL` / `VITE_WS_URL` point at prod worker
+- [ ] Run a 2-partner canary against prod: create couple, set vegan + shellfish allergies, request dinner, visually confirm no shellfish in the meal
+- [ ] `wrangler tail` during a 5-minute soak: no 500s on `meal-chat`, no DO eviction logs, no D1 `SQLITE_BUSY`
+
 ## Roadmap
 
 - [x] **Step 1** — Shared grocery list with real-time sync
