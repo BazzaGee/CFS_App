@@ -85,6 +85,22 @@ export async function handleVerify(c: Context<{ Bindings: Env }>): Promise<Respo
     )
       .bind(accessToken, row.id)
       .run();
+
+    c.executionCtx.waitUntil(
+      fetch('https://api.resend.com/events/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          event: 'user.signed_up',
+          email: row.email,
+          ...(row.join_code ? { payload: { joinCode: row.join_code } } : {}),
+        }),
+      }).catch((err) => console.error('Resend event emit failed:', err)),
+    );
+
     return Response.redirect(`${pwaUrl}?access=${accessToken}${joinSuffix}`, 302);
   }
 
